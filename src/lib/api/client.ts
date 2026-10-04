@@ -159,6 +159,7 @@ export interface Product {
   base_price_currency: string;
   attributes: Record<string, unknown>;
   variants: unknown[];
+  urls?: string[];
 }
 
 export interface Order {
