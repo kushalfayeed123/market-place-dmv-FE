@@ -21,6 +21,7 @@ import { useAuth } from "./context/AuthContext";
 import { ProductGrid } from "./components/catalog/ProductGrid";
 import { ProductCard } from "./components/catalog/ProductCard";
 import { ProductDetail } from "./components/catalog/ProductDetail";
+import { KBResultCard, type KBSearchResult } from "./components/catalog/KBResultCard";
 import { CartSummary } from "./components/cart/CartSummary";
 import { OrderList } from "./components/orders/OrderList";
 import { OrderConfirmation } from "./components/orders/OrderConfirmation";
@@ -69,6 +70,28 @@ function toUiProduct(p: BackendProduct): CatalogProduct {
   };
 }
 
+/**
+ * The agent emits `props.items` for BOTH `semantic_search` (raw knowledge-base
+ * documents with `text` + `metadata`) and `search_products` (real product DTOs
+ * with `name` + `price`). Split them so KB hits render as snippet cards and
+ * product DTOs render as `ProductCard`s — never the two mixed in one grid.
+ */
+function partitionResults(
+  items: Array<Record<string, unknown>>,
+): { products: Product[]; docs: KBSearchResult[] } {
+  const products: Product[] = [];
+  const docs: KBSearchResult[] = [];
+  for (const it of items) {
+    if (!it) continue;
+    if (typeof it.text === "string" && typeof it.name !== "string") {
+      docs.push(it as unknown as KBSearchResult);
+    } else if (typeof it.name === "string") {
+      products.push(it as unknown as Product);
+    }
+  }
+  return { products, docs };
+}
+
 type ActionHandler = (action: string, data?: unknown) => void;
 
 /**
@@ -87,26 +110,48 @@ function RenderDirective({
   const props = directive.props;
 
   if (directive.component === "ProductGrid") {
-    return (
-      <ProductGrid
-        products={
-          Array.isArray(props.products)
-            ? (props.products as Product[])
-            : []
-        }
-        query={props.query as string | undefined}
-        onView={(p) => onAction?.("view_product", p)}
-        onAddToCart={(p) => onAction?.("add_to_cart", p)}
-      />
-    );
+    // Gateway contract: { items, query, count, sources }. `items` are EITHER
+    // product DTOs (search_products) OR raw knowledge-base documents
+    // (semantic_search). Render KB snippets here, real product cards below.
+    const raw = Array.isArray(props.items)
+      ? (props.items as Array<Record<string, unknown>>)
+      : Array.isArray(props.products)
+      ? (props.products as Array<Record<string, unknown>>)
+      : [];
+    const { products, docs } = partitionResults(raw);
+    if (docs.length) {
+      return (
+        <div className="space-y-3">
+          {docs.map((doc) => (
+            <KBResultCard
+              key={doc.id ?? doc.text?.slice(0, 24) ?? "kb"}
+              doc={doc}
+              onViewProduct={(id) => onAction?.("view_product", id)}
+            />
+          ))}
+        </div>
+      );
+    }
+    if (products.length) {
+      return (
+        <ProductGrid
+          products={products}
+          query={props.query as string | undefined}
+          onView={(p) => onAction?.("view_product", p)}
+          onAddToCart={(p) => onAction?.("add_to_cart", p)}
+        />
+      );
+    }
+    return <ErrorMessage message="No results to display." />;
   }
   if (directive.component === "ProductCard") {
     return <ProductCard product={props.product as Product} />;
   }
   if (directive.component === "ProductDetail") {
+    // Gateway emits a FLAT product DTO as `props` (not a { product } wrapper).
     return (
       <ProductDetail
-        product={props.product as Product & { description?: string }}
+        product={props as unknown as (Product & { description?: string })}
         onAddToCart={(p) => onAction?.("add_to_cart", p)}
       />
     );
@@ -214,6 +259,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchTerm, setSearchTerm] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<Product[] | null>(null);
+  const [kbResults, setKBResults] = useState<KBSearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [contextDirective, setContextDirective] = useState<UiDirective | null>(
     null,
@@ -225,6 +271,10 @@ export default function App() {
   const [agentConnected, setAgentConnected] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  // Buffer for accumulating streaming text deltas between turns (reset on each
+  // new session / search). Avoids the "phone case... no matching products..."
+  // flicker where each token delta replaced the whole status line.
+  const textBufferRef = useRef<string>("");
 
   // ── Load the full catalog for browsing ──
   const loadProducts = () => {
@@ -252,34 +302,51 @@ export default function App() {
     agentGateway.connect(stored ?? undefined);
 
     agentGateway.setHandlers({
-      onSession: () => setAgentConnected(true),
-      onText: (content) => setStatusText(content || null),
+      onSession: () => {
+        // New turn — reset the accumulated status text buffer.
+        textBufferRef.current = "";
+        setStatusText(null);
+        setAgentConnected(true);
+      },
+      onText: (content) => {
+        // The gateway streams one `text` event per token delta. Accumulate the
+        // fragments so the status line reads as a whole sentence instead of
+        // flickering per token (the original fragmented "phone case... no
+        // matching products..." behaviour).
+        if (content) {
+          textBufferRef.current = (textBufferRef.current ?? "") + content;
+        }
+        setStatusText(textBufferRef.current || null);
+      },
       onDirective: (directive) => {
-        if (
-          directive.component === "ProductGrid" ||
-          directive.component === "ProductCard"
-        ) {
-          setSearchResults((prev) => {
-            const existing = prev ?? [];
-            if (directive.component === "ProductCard") {
-              return [...existing, directive.props.product as Product];
-            }
-            return Array.isArray(directive.props.products)
-              ? (directive.props.products as Product[])
-              : existing;
-          });
-          setSearching(false);
+        if (directive.component === "ProductGrid") {
+          // Envelope contract from the gateway: { items, query, count, sources }.
+          // `items` are EITHER product DTOs (search_products) OR raw knowledge-base
+          // documents (semantic_search) — never mixed. Partition so KB hits render
+          // as snippet cards and product DTOs render as ProductCards.
+          const raw = Array.isArray(directive.props.items)
+            ? (directive.props.items as Array<Record<string, unknown>>)
+            : Array.isArray(directive.props.products)
+            ? (directive.props.products as Array<Record<string, unknown>>)
+            : [];
+          const { products, docs } = partitionResults(raw);
+          setSearchResults(products);
+          setKBResults(docs.length ? docs : null);
         } else if (directive.component === "ProductDetail") {
-          setSelectedProduct(directive.props.product as CatalogProduct);
+          // The gateway emits a FLAT product DTO as `props`
+          // (id, name, price, image_url, description, variants…), NOT a
+          // { product } wrapper — so read the props directly.
+          setSelectedProduct(
+            directive.props as unknown as CatalogProduct,
+          );
           setContextDirective(null);
-          setSearching(false);
         } else {
           // CartSummary, OrderList, OrderConfirmation, MerchantBalanceCard,
           // LedgerTable, FulfillmentTracker, ConfirmationDialog, SignInPrompt,
           // ErrorMessage — render inline in the context rail.
           setContextDirective(directive);
-          setSearching(false);
         }
+        setSearching(false);
       },
       onError: (error) => {
         setSearching(false);
@@ -298,9 +365,11 @@ export default function App() {
     if (!q) return;
     setSearchTerm(q);
     setSearchResults(null);
+    setKBResults(null);
     setContextDirective(null);
     setSelectedProduct(null);
     setStatusText(null);
+    textBufferRef.current = "";
     setSearching(true);
     inputRef.current?.focus();
     agentGateway.sendMessage(q);
@@ -317,7 +386,17 @@ export default function App() {
 
   function handleAction(action: string, data?: unknown) {
     if (action === "view_product") {
-      setSelectedProduct(data as CatalogProduct);
+      // `view_product` arrives either with a Product object (a ProductCard
+      // click from a product grid) or a product_id string (a "View product"
+      // button on a knowledge-base snippet). A product_id is routed back
+      // through the agent so it fetches `get_product_detail` and the user can
+      // keep chatting; a full Product object is shown directly.
+      if (typeof data === "string") {
+        agentGateway.sendMessage(`Show me details for product ${data}`);
+        setSearching(true);
+      } else {
+        setSelectedProduct(data as CatalogProduct);
+      }
     } else if (action === "add_to_cart") {
       agentGateway.sendMessage(`Add ${(data as Product).name} to my cart`);
     } else if (action === "checkout") {
@@ -336,8 +415,12 @@ export default function App() {
   }
 
   const showResults = searchResults && searchResults.length > 0;
+  const showKBSnippets = kbResults && kbResults.length > 0;
   const showEmptyResults =
-    searchResults && searchResults.length === 0 && !searching;
+    !searching &&
+    !showResults &&
+    !showKBSnippets &&
+    (searchResults !== null || kbResults !== null);
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-foreground)]">
@@ -437,11 +520,22 @@ export default function App() {
       </header>
                   <main className="max-w-7xl mx-auto px-5 sm:px-8 py-6">
         {selectedProduct ? (
-          <ProductDetail
-            product={selectedProduct}
-            onBack={() => setSelectedProduct(null)}
-            onAddToCart={handleAddToCart}
-          />
+          <div className="space-y-6">
+            <ProductDetail
+              product={selectedProduct}
+              onBack={() => setSelectedProduct(null)}
+              onAddToCart={handleAddToCart}
+            />
+            {/* Agent context rail: keep visible while viewing a product so
+                the user can keep chatting (sticky header search bar is always
+                available) and see cart/order/confirmation state from the agent. */}
+            {contextDirective && (
+              <RenderDirective
+                directive={contextDirective}
+                onAction={handleAction}
+              />
+            )}
+          </div>
         ) : (
           <div className="grid grid-cols-1  gap-6 items-start">
             <div className="xl:col-span-2 space-y-8">
@@ -457,6 +551,27 @@ export default function App() {
                     onView={handleViewProduct}
                     onAddToCart={handleAddToCart}
                   />
+                </section>
+              )}
+              {showKBSnippets && (
+                <section>
+                  <h2 className="text-lg font-semibold mb-3">
+                    Knowledge base results for “{searchTerm}”
+                  </h2>
+                  <div className="space-y-3">
+                    {kbResults!.map((doc) => (
+                      <KBResultCard
+                        key={doc.id ?? doc.text?.slice(0, 24) ?? "kb"}
+                        doc={doc}
+                        onViewProduct={(id) => {
+                          agentGateway.sendMessage(
+                            `Show me details for product ${id}`,
+                          );
+                          setSearching(true);
+                        }}
+                      />
+                    ))}
+                  </div>
                 </section>
               )}
               {showEmptyResults && (

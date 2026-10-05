@@ -33,7 +33,7 @@ export function ProductGrid({ products, query, onAddToCart, onView }: ProductGri
         • Each card is wrapped in a break-inside-avoid block so it never splits
           between columns; mb-* keeps a consistent gutter inside a column.
       */}
-      <div className="columns-2 sm:columns-3 md:columns-4 lg:columns-5 xl:columns-6 gap-3 md:gap-4">
+      <div className="columns-2 sm:columns-3 md:columns-4 lg:columns-5 gap-3 md:gap-4">
         {products.map((p) => (
           <div key={p.id} className="mb-3 break-inside-avoid">
             <ProductCard product={p} onAddToCart={onAddToCart} onView={onView} />
