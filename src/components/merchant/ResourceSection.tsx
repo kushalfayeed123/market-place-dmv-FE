@@ -7,8 +7,8 @@ import type { SectionConfig, RowAction } from "./sections";
 
 const money = (n: number, c = "NGN") => new Intl.NumberFormat("en-NG", { style: "currency", currency: c, maximumFractionDigits: 0 }).format(n / 100);
 const tone = (s: string) =>
-  ["paid", "delivered", "active", "won", "resolved"].includes(s) ? "bg-[var(--color-success-bg)] text-[var(--color-success-fg)]"
-  : ["failed", "lost", "cancelled", "open", "unread"].includes(s) ? "bg-[var(--color-danger-bg)] text-[var(--color-danger-fg)]"
+  ["paid", "delivered", "active", "won", "resolved", "fulfilled", "shipped"].includes(s) ? "bg-[var(--color-success-bg)] text-[var(--color-success-fg)]"
+  : ["failed", "lost", "cancelled", "refunded", "open", "unread", "suspended"].includes(s) ? "bg-[var(--color-danger-bg)] text-[var(--color-danger-fg)]"
   : "bg-[var(--color-warning-bg)] text-[var(--color-warning-fg)]";
 
 export function ResourceSection({ cfg, merchantId }: { cfg: SectionConfig; merchantId: string }) {
@@ -20,7 +20,7 @@ export function ResourceSection({ cfg, merchantId }: { cfg: SectionConfig; merch
 
   const load = useCallback(async () => {
     setLoading(true); setErr(null);
-    try { const d = await mreq<any>("GET", cfg.list!(merchantId, { search, status })); setRows(Array.isArray(d) ? d : d.items ?? []); }
+        try { const d = await mreq<any>("GET", cfg.list!(merchantId, { search, status })); setRows(!d ? [] : Array.isArray(d) ? d : (d.items ?? [])); }
     catch (e) { setErr(e instanceof Error ? e.message : "Couldn't load this list. Try again."); }
     finally { setLoading(false); }
   }, [cfg, merchantId, search, status]);
@@ -74,7 +74,7 @@ export function ResourceSection({ cfg, merchantId }: { cfg: SectionConfig; merch
                   </td>))}
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-1.5">
-                    {cfg.actions?.filter(a => !a.when || a.when(r)).map(a => pending?.row.id === r.id && pending.act === a ? (
+                                        {cfg.actions?.filter(a => !a.when || a.when(r)).map(a => pending?.row.id === r.id && pending?.act === a ? (
                       <span key={a.label} className="flex items-center gap-1.5 text-xs">{a.confirm}
                         <button disabled={busy} onClick={() => run(r, a)} className="rounded bg-[var(--color-danger-fg)] px-2 py-1 text-white">Yes</button>
                         <button onClick={() => setPending(null)} className="px-1 text-[var(--color-muted)]">No</button></span>

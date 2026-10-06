@@ -1,16 +1,33 @@
-// Thin typed layer for merchant-console endpoints. Many do not exist yet — the
-// backend agent should implement them as specified in HANDOFF.md.
-// If apiClient exposes a shared request helper, swap `mreq` for it (keep signatures).
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+// Thin typed layer for merchant-console endpoints.
+// Delegates to apiClient.raw so every request gets:
+//  - Bearer access-token injection (with 401 → refresh → retry)
+//  - Idempotency-Key on mutating requests
+//  - The /api/v1 prefix
+import { apiClient, ApiError } from "@/lib/api/client";
 
-export async function mreq<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
-  const r = await fetch(BASE + path, {
-    method, credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail ?? r.statusText);
-  return r.status === 204 ? (undefined as T) : r.json();
+export { ApiError };
+
+/**
+ * Merchant-console request helper.
+ * GET requests that receive a 404 return `null` (spec: "404 → empty")
+ * so the UI can render an empty state instead of an error banner.
+ */
+export async function mreq<T = unknown>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T | null> {
+  try {
+    return await apiClient.raw<T>(method, path, {
+      body,
+      idempotent: method !== "GET",
+    });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404 && method === "GET") {
+      return null;
+    }
+    throw e;
+  }
 }
 
 export interface ProposedAction {
@@ -22,9 +39,15 @@ export interface AgentMessage { role: "user" | "agent"; text: string; actions?: 
 
 export const agentApi = {
   chat: (merchantId: string, message: string, context: { section: string }) =>
-    mreq<{ reply: string; proposed_actions: ProposedAction[] }>("POST", `/agent/merchant/${merchantId}/chat`, { message, context }),
+    mreq<{ reply: string; proposed_actions: ProposedAction[] }>(
+      "POST", `/agent/merchant/${merchantId}/chat`, { message, context },
+    ) as Promise<{ reply: string; proposed_actions: ProposedAction[] }>,
   confirm: (merchantId: string, actionId: string) =>
-    mreq<{ ok: boolean; result_summary: string }>("POST", `/agent/merchant/${merchantId}/actions/${actionId}/confirm`),
+    mreq<{ ok: boolean; result_summary: string }>(
+      "POST", `/agent/merchant/${merchantId}/actions/${actionId}/confirm`,
+    ) as Promise<{ ok: boolean; result_summary: string }>,
   dismiss: (merchantId: string, actionId: string) =>
-    mreq("POST", `/agent/merchant/${merchantId}/actions/${actionId}/dismiss`),
+    mreq("POST", `/agent/merchant/${merchantId}/actions/${actionId}/dismiss`)
+      .then(() => ({ ok: true, result_summary: "Action dismissed." })),
 };
+

@@ -1,13 +1,14 @@
-"use client";
+"use client"
 import { ReactNode, useState } from "react";
 import Link from "next/link";
 import { LogOut, ChevronLeft, Sparkles, Store } from "lucide-react";
 import { SECTIONS } from "./sections";
 import { AgentPanel } from "./AgentPanel";
+import { MerchantNavHeader } from "./MerchantNavHeader";
 
-/** Sidebar nav (bottom-scroll bar on mobile) + content + dockable assistant. Section lives in ?section=. */
-export function MerchantShell({ merchantId, businessName, section, onLogout, children }:
-  { merchantId: string; businessName: string; section: string; onLogout: () => void; children: ReactNode }) {
+/** Sidebar nav + content + dockable assistant. Section lives in ?section=. */
+export function MerchantShell({ merchantId, businessName, section, kycStatus, onLogout, children }:
+  { merchantId: string; businessName: string; section: string; kycStatus?: string; onLogout: () => void; children: ReactNode }) {
   const [agentOpen, setAgentOpen] = useState(false);
   return (
     <div className="flex flex-col gap-6 md:flex-row">
@@ -24,7 +25,17 @@ export function MerchantShell({ merchantId, businessName, section, onLogout, chi
           <button onClick={onLogout} className="flex items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-foreground)]"><LogOut size={12} />Sign out</button>
         </div>
       </nav>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1">
+        <MerchantNavHeader
+          merchantId={merchantId}
+          businessName={businessName}
+          section={section}
+          kycStatus={kycStatus}
+          onRefresh={() => window.dispatchEvent(new Event("merchant:refresh"))}
+          onLogout={onLogout}
+        />
+        {children}
+      </div>
       {!agentOpen && <button onClick={() => setAgentOpen(true)} className="fixed bottom-5 right-5 z-30 flex items-center gap-2 rounded-full bg-[var(--color-primary)] px-4 py-3 text-sm font-medium text-white shadow-lg"><Sparkles size={16} />Ask assistant</button>}
       <AgentPanel merchantId={merchantId} section={section} open={agentOpen} onClose={() => setAgentOpen(false)} />
     </div>

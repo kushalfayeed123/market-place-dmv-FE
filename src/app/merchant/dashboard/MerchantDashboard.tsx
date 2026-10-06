@@ -100,7 +100,7 @@ function MerchantDashboardContent() {
 
   const cfg = SECTIONS.find(s => s.key === section);
   return (
-    <MerchantShell merchantId={merchant.id} businessName={merchant.business_name} section={cfg ? section : "overview"} onLogout={() => logout().catch(() => {})}>
+        <MerchantShell merchantId={merchant.id} businessName={merchant.business_name} section={cfg ? section : "overview"} kycStatus={merchant.kyc_status} onLogout={() => logout().catch(() => {})}>
       {error && <div role="alert" className="mb-4 rounded-lg bg-[var(--color-danger-bg)] px-4 py-3 text-sm text-[var(--color-danger-fg)]">{error}</div>}
       {!cfg || cfg.key === "overview"
         ? <Overview merchant={merchant} balance={balance} entries={entries} attention={attention} reload={loadData} />

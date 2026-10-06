@@ -242,6 +242,7 @@ export interface LedgerEntryResponse {
 }
 
 export const apiClient = {
+  raw,
   async login(email: string, password: string) {
     const form = new URLSearchParams({ username: email, password });
     const data = await raw<TokenResponse>("POST", "/auth/login", { form });
