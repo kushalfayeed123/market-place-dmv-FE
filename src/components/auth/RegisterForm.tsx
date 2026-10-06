@@ -24,7 +24,7 @@ const registerSchema = z
 export type RegisterFormData = z.infer<typeof registerSchema>;
 
 export interface RegisterFormProps {
-  onSuccess?: (user: RegisterData & { first_name: string; last_name: string }) => void;
+  onSuccess?: (role?: string) => void;
   onSwitchToLogin?: () => void;
   isLoading?: boolean;
 }
@@ -56,9 +56,9 @@ export function RegisterForm({ onSuccess, onSwitchToLogin, isLoading: externalLo
         role: data.role,
       };
 
-      await registerUser(payload);
+            await registerUser(payload);
 
-      onSuccess?.({ ...payload, first_name: data.first_name, last_name: data.last_name });
+      onSuccess?.(data.role);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred during registration");
     } finally {

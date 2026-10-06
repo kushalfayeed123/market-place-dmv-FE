@@ -22,14 +22,18 @@ export interface AuthFlowProps {
 export function AuthFlow({ onSuccess, defaultMode = "login" }: AuthFlowProps) {
   const [mode, setMode] = useState<AuthMode>(defaultMode);
   const router = useRouter();
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, loading, user } = useAuth();
 
-  // If the user is already authenticated, bounce them to the home page.
+  // If the user is already authenticated, redirect to the appropriate page
+  // based on their role.
   useEffect(() => {
     if (!loading && isAuthenticated) {
-      router.replace("/");
+      const dest = user?.role === "merchant_owner"
+        ? "/merchant/dashboard"
+        : "/";
+      router.replace(dest);
     }
-  }, [isAuthenticated, loading, router]);
+  }, [isAuthenticated, loading, router, user?.role]);
 
   if (loading) {
     return (
@@ -39,23 +43,25 @@ export function AuthFlow({ onSuccess, defaultMode = "login" }: AuthFlowProps) {
     );
   }
 
-  const handleSuccess = () => {
+  const handleSuccess = (role?: string) => {
     onSuccess?.();
-    // Hard navigate to home so the layout-level AuthProvider picks up
-    // the persisted session from sessionStorage.
-    router.replace("/");
+    // Hard navigate so the layout-level AuthProvider picks up the
+    // persisted session from sessionStorage.  Merchant owners go to
+    // their dashboard (which may prompt for store setup); buyers go
+    // to the marketplace home.
+    router.replace(role === "merchant_owner" ? "/merchant/dashboard" : "/");
   };
 
   return (
     <div className="w-full max-w-md mx-auto">
       {mode === "login" ? (
         <LoginForm
-          onSuccess={() => handleSuccess()}
+          onSuccess={(role) => handleSuccess(role)}
           onSwitchToRegister={() => setMode("register")}
         />
       ) : (
         <RegisterForm
-          onSuccess={() => handleSuccess()}
+          onSuccess={(role) => handleSuccess(role)}
           onSwitchToLogin={() => setMode("login")}
         />
       )}

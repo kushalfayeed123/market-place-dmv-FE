@@ -7,10 +7,11 @@ import {
   type ComponentProps,
 } from "react";
 import {
-  Store,
+    Store,
   LogIn,
   LogOut,
   Package,
+  LayoutDashboard,
 } from "lucide-react";
 import { useAuth } from "./context/AuthContext";
 
@@ -331,8 +332,19 @@ export default function App() {
         setStatusText(textBufferRef.current || null);
       },
       onDirective: (directive) => {
-        pushChat({ role: "agent", directive });
         setSearching(false);
+        // Skip ProductGrid directives that carry no items — the agent may
+        // emit an empty semantic_search result before a populated search_products
+        // result. Showing "No results" for the intermediate one is confusing.
+        if (directive.component === "ProductGrid") {
+          const raw = Array.isArray(directive.props.items)
+            ? directive.props.items
+            : Array.isArray(directive.props.products)
+              ? directive.props.products
+              : [];
+          if (!Array.isArray(raw) || raw.length === 0) return;
+        }
+        pushChat({ role: "agent", directive });
       },
       onError: (error) => {
         setSearching(false);
@@ -360,8 +372,16 @@ export default function App() {
     setSearching(true);
     textBufferRef.current = "";
     setStatusText(null);
-    addUserMessage(trimmed);
+        addUserMessage(trimmed);
     agentGateway.sendMessage(trimmed);
+  }
+
+  function handleClear() {
+    setChatMessages([]);
+    chatIdRef.current = 0;
+    setSearching(false);
+    setStatusText(null);
+    textBufferRef.current = "";
   }
 
   function handleViewProduct(p: Product) {
@@ -434,13 +454,22 @@ export default function App() {
               <span
                 className={
                   "w-2 h-2 rounded-full " +
-                  (agentConnected ? "bg-green-400" : "bg-red-400")
+                                    (agentConnected ? "bg-green-400" : "bg-red-400")
                 }
             />
               <span className="hidden sm:inline">
                 Agent {agentConnected ? "online" : "offline"}
               </span>
             </span>
+            {isAuthenticated && (user?.role === "merchant_owner" || user?.role === "merchant_staff") && (
+              <a
+                href="/merchant/dashboard"
+                className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-foreground)] hover:text-[var(--color-primary)] transition-colors"
+              >
+                <LayoutDashboard size={14} />
+                Merchant Dashboard
+              </a>
+            )}
             {isAuthenticated ? (
               <button
                 onClick={() => logout().catch(() => {})}
@@ -465,10 +494,11 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-5 sm:px-8 py-6">
         {/* Chat panel - starts minimal (input only) and expands as
             the conversation grows. Never fixed at the bottom. */}
-        <AgentChatPanel
+                <AgentChatPanel
           messages={chatMessages}
           inputPlaceholder="Search products, ask questions..."
           onSend={handleChatSubmit}
+          onClear={handleClear}
           isSearching={searching}
           statusText={statusText}
           renderDirective={(d) => (

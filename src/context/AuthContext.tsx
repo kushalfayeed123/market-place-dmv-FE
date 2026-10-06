@@ -37,8 +37,8 @@ interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (data: RegisterData) => Promise<void>;
+  login: (email: string, password: string) => Promise<AuthUser>;
+  register: (data: RegisterData) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -86,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
       sessionStorage.setItem("mp_user", JSON.stringify(u));
     } catch {
+      authStore.clear();
       setUser(null);
       sessionStorage.removeItem("mp_user");
     }
@@ -107,18 +108,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ── Mutations ──
 
-  const login = async (email: string, password: string) => {
+    const login = async (email: string, password: string) => {
     const data = await apiClient.login(email, password);
     const u = normalizeUser(data.user as unknown as Record<string, unknown>);
     setUser(u);
     sessionStorage.setItem("mp_user", JSON.stringify(u));
+    return u;
   };
 
-  const register = async (payload: RegisterData) => {
+    const register = async (payload: RegisterData) => {
     const data = await apiClient.register(payload);
     const u = normalizeUser(data.user as unknown as Record<string, unknown>);
     setUser(u);
     sessionStorage.setItem("mp_user", JSON.stringify(u));
+    return u;
   };
 
   const logout = async () => {

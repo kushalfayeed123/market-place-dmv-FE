@@ -24,13 +24,23 @@ export class ApiError extends Error {
 
 // ── Auth token store (in-memory access token + sessionStorage refresh) ──
 let accessToken: string | null = null;
+const ACCESS_TOKEN_KEY = "mp_access_token";
 const REFRESH_KEY = "mp_refresh_token";
+
+// Hydrate the in-memory access-token cache from sessionStorage so the
+// token survives a full page reload.  On the server (SSR) window is
+// undefined, so the cache stays null — the token is only read on the
+// client where a prior login stored it.
+if (typeof window !== "undefined") {
+  accessToken = window.sessionStorage.getItem(ACCESS_TOKEN_KEY);
+}
 
 export const authStore = {
   getAccessToken: () => accessToken,
   setTokens(access: string, refresh: string) {
     accessToken = access;
     if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(ACCESS_TOKEN_KEY, access);
       window.sessionStorage.setItem(REFRESH_KEY, refresh);
     }
   },
@@ -38,9 +48,10 @@ export const authStore = {
     typeof window !== "undefined"
       ? window.sessionStorage.getItem(REFRESH_KEY)
       : null,
-  clear() {
+    clear() {
     accessToken = null;
     if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem(ACCESS_TOKEN_KEY);
       window.sessionStorage.removeItem(REFRESH_KEY);
     }
   },
@@ -173,6 +184,63 @@ export interface Order {
   items: Array<Record<string, unknown>>;
 }
 
+// ── Merchant types (mirrors Backend /api/v1/merchants and /ledger schemas) ──
+
+export interface MerchantResponse {
+  id: string;
+  owner_user_id: string;
+  business_name: string;
+  slug: string;
+  kyc_status: string;
+  kyc_provider_ref?: string | null;
+  commission_plan_id: string;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Payload for POST /merchants/onboard — self-service merchant setup. */
+export interface MerchantOnboard {
+  business_name: string;
+  slug: string;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+}
+
+export interface LedgerBalance {
+  merchant_id: string;
+  currency: string;
+  total_balance: number; // minor units (cents / kobo)
+  available_balance: number;
+  held_balance: number;
+  calculated_at: string;
+}
+
+export interface LedgerEntryResponse {
+  id: string;
+  entry_group_id: string;
+  account_type: string;
+  merchant_id?: string | null;
+  direction: string;
+  entry_type: string;
+  amount: number; // minor units
+  currency: string;
+  order_id?: string | null;
+  payment_transaction_id?: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  created_by: string;
+}
+
 export const apiClient = {
   async login(email: string, password: string) {
     const form = new URLSearchParams({ username: email, password });
@@ -221,11 +289,46 @@ export const apiClient = {
       idempotent: true,
     });
   },
-  processPayment(orderId: string, provider = "paystack") {
+    processPayment(orderId: string, provider = "paystack") {
     return raw<Record<string, unknown>>("POST", "/payments/process", {
       body: { order_id: orderId, provider },
       idempotent: true,
     });
+  },
+
+  // ── Merchant dashboard endpoints ──
+
+    /// GET /merchants/by-owner/{user_id} — fetch the merchant record for the
+  /// authenticated user, or 404 if the user has no store yet.
+  getMyMerchant(userId: string) {
+    return raw<MerchantResponse>("GET", `/merchants/by-owner/${userId}`);
+  },
+
+    /// POST /merchants/onboard — create a merchant (and primary store) for
+  /// the currently authenticated merchant_owner.  Owner ID and default
+  /// commission plan are derived server-side.
+  onboardMerchant(payload: MerchantOnboard) {
+    return raw<MerchantResponse>("POST", "/merchants/onboard", {
+      body: payload,
+      idempotent: true,
+    });
+  },
+
+  /// GET /ledger/balance/{merchant_id} — current balance snapshot.
+  getMerchantBalance(merchantId: string) {
+    return raw<LedgerBalance>("GET", `/ledger/balance/${merchantId}`);
+  },
+
+  /// GET /ledger/entries?merchant_id=... — ledger line items for a merchant.
+  getLedgerEntries(
+    merchantId: string,
+    opts: { skip?: number; limit?: number } = {},
+  ) {
+    const q = new URLSearchParams();
+    q.set("merchant_id", merchantId);
+    if (opts.skip !== undefined) q.set("skip", String(opts.skip));
+    if (opts.limit !== undefined) q.set("limit", String(opts.limit));
+    return raw<LedgerEntryResponse[]>("GET", `/ledger/entries?${q.toString()}`);
   },
 };
 

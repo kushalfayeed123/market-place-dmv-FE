@@ -16,7 +16,7 @@ const loginSchema = z.object({
 export type LoginFormData = z.infer<typeof loginSchema>;
 
 export interface LoginFormProps {
-  onSuccess?: () => void;
+  onSuccess?: (role?: string) => void;
   onSwitchToRegister?: () => void;
   isLoading?: boolean;
 }
@@ -34,16 +34,16 @@ export function LoginForm({ onSuccess, onSwitchToRegister, isLoading: externalLo
     resolver: zodResolver(loginSchema),
   });
 
-  const onSubmit = async (data: LoginFormData) => {
+    const onSubmit = async (data: LoginFormData) => {
     setIsLoading(true);
     setError(null);
 
     try {
       // Uses auth context which calls apiClient.login and stores tokens +
-      // user state centrally.
-      await login(data.email, data.password);
+      // user state centrally.  login() returns the normalized AuthUser.
+      const user = await login(data.email, data.password);
 
-      onSuccess?.();
+      onSuccess?.(user.role);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
