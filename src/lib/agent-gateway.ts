@@ -1,11 +1,12 @@
-﻿import type { UiDirective } from "@/types/components";
+import type { UiDirective } from "@/types/components";
 
 /**
  * Agent Gateway client.
  *
  * The Gateway (FastAPI - Agent/gateway/main.py) exposes a single streaming
- * endpoint: POST /sse with body { message, session_id?, confirmed_token? }.
- * It responds text/event-stream with that turn's events, then closes:
+ * endpoint: POST /sse with body { message, session_id?, confirmed_token?,
+ * user_token? }. It responds text/event-stream with that turn's events, then
+ * closes:
  *   event: session      -> { session_id }
  *   event: text         -> { content }
  *   event: ui_directive -> { directive }   (UIDirective envelope)
@@ -14,12 +15,19 @@
  * There is no persistent listen stream - each POST streams one turn. Sessions
  * are resumed by passing the stored session_id on the next POST. (Native
  * EventSource cannot POST, so the SSE wire format is parsed manually.)
+ *
+ * Authenticated requests: the frontend always forwards the signed-in user's
+ * Bearer access token as `user_token` so action intents (add_to_cart,
+ * checkout, confirm, ...) are authenticated, even for sessions that started
+ * anonymously before the user signed in.
  */
 type GatewayHandlers = {
   onSession?: (sessionId: string) => void;
   onText?: (content: string) => void;
   onDirective?: (directive: UiDirective) => void;
   onError?: (error: string) => void;
+  /** Called when a turn's event stream finishes (success, error, or network end). */
+  onEnd?: () => void;
 };
 
 const SESSION_KEY = "mp_agent_session_id";
@@ -63,8 +71,27 @@ export class AgentGatewayClient {
     }
   }
 
+  /**
+   * Resolve the signed-in user's Bearer access token to forward as `user_token`
+   * on every SSE POST, so action intents (add_to_cart, checkout, confirm) are
+   * authenticated for a signed-in user who started the session anonymously.
+   */
+  private getAuthToken(): string | null {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { authStore } = require("@/lib/api/client");
+      const token = authStore.getAccessToken();
+      return token ? `Bearer ${token}` : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Send a user message; resolves when the turn's event stream completes. */
-  async sendMessage(message: string, confirmedToken?: string): Promise<void> {
+  async sendMessage(
+    message: string,
+    confirmedToken?: string,
+  ): Promise<void> {
     if (!this.ready) {
       this.handlers.onError?.("Gateway not connected");
       return;
@@ -77,29 +104,38 @@ export class AgentGatewayClient {
           message,
           session_id: this.sessionId ?? undefined,
           confirmed_token: confirmedToken ?? undefined,
+          user_token: this.getAuthToken() ?? undefined,
         }),
       });
       if (!res.ok || !res.body) {
         this.handlers.onError?.("Gateway unreachable (" + res.status + ")");
+        this.handlers.onEnd?.();
         return;
       }
       await this.consumeStream(res);
     } catch {
       this.handlers.onError?.("Failed to reach agent gateway");
+      this.handlers.onEnd?.();
     }
   }
 
   private async consumeStream(res: Response): Promise<void> {
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const chunks = buffer.split("\n\n");
-      buffer = chunks.pop() ?? "";
-      for (const chunk of chunks) this.handleChunk(chunk);
+    try {
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() ?? "";
+        for (const chunk of chunks) this.handleChunk(chunk);
+      }
+    } finally {
+      // The gateway closes the stream at the end of the turn — notify handlers
+      // so UI state (searching spinner, etc.) is reset even on a clean finish.
+      this.handlers.onEnd?.();
     }
   }
 
