@@ -30,6 +30,101 @@ const onboardSchema = z.object({
   country: z.string().optional(),
 });
 
+const COUNTRY_OPTIONS: { code: string; name: string }[] = [
+  { code: "NG", name: "Nigeria" },
+  { code: "US", name: "United States" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "CA", name: "Canada" },
+  { code: "AU", name: "Australia" },
+  { code: "DE", name: "Germany" },
+  { code: "FR", name: "France" },
+  { code: "IN", name: "India" },
+  { code: "KE", name: "Kenya" },
+];
+
+/// Country-name → ISO 3166-1 alpha-2 lookup for data cleanup.
+const COUNTRY_NAME_TO_CODE: Record<string, string> = {
+  nigeria: "NG",
+  "united states": "US",
+  "united states of america": "US",
+  "united kingdom": "GB",
+  "great britain": "GB",
+  canada: "CA",
+  australia: "AU",
+  germany: "DE",
+  france: "FR",
+  india: "IN",
+  kenya: "KE",
+};
+
+/**
+ * Cleans up address form data that may contain combined / auto-filled values:
+ *  - country: normalises full names (e.g. "Nigeria") to ISO codes ("NG")
+ *  - city / state: extracts the individual component from a combined
+ *    "Country / State / City" string
+ *  - address_line1: strips trailing city / state that some browsers paste
+ *    alongside the street (e.g. "... Rukuba Road, jos Plateau State")
+ */
+function normalizeAddress(data: OnboardFormData): OnboardFormData {
+  const cleaned = { ...data };
+
+  // --- Country: full name → ISO code ---
+  if (cleaned.country) {
+    const c = cleaned.country.trim();
+    if (c.length === 2 && /^[A-Za-z]{2}$/.test(c)) {
+      cleaned.country = c.toUpperCase();
+    } else {
+      const code = COUNTRY_NAME_TO_CODE[c.toLowerCase()];
+      if (code) cleaned.country = code;
+    }
+  }
+
+  // --- City: may arrive as "Nigeria / Plateau State / Jos" ---
+  if (cleaned.city) {
+    const parts = cleaned.city.split("/").map((p) => p.trim());
+    if (parts.length >= 3) {
+      // "Country / State / City" → keep the last part as the city
+      cleaned.city = parts[parts.length - 1];
+      // If state was empty, populate it from the middle part
+      if (!cleaned.state && parts.length >= 2) {
+        // Strip trailing " State" / " Province" / " Region" that the
+        // combined label often includes (e.g. "Plateau State" → "Plateau").
+        let extractedState = parts[parts.length - 2];
+        extractedState = extractedState.replace(
+          /\s+(State|Province|Region)$/i,
+          "",
+        );
+        cleaned.state = extractedState;
+      }
+    }
+  }
+
+  // --- address_line1: some auto-fill pastes "... Street, city state" ---
+  if (cleaned.address_line1) {
+    const a = cleaned.address_line1.trim();
+    // Strip trailing ", city state" patterns
+    // Match a comma followed by text that looks like "city state" at the end
+    const match = a.match(
+      /^(.*?),\s*([^,]{2,50})\s+([A-Za-z][A-Za-z\s]{2,30})$/,
+    );
+    if (match && cleaned.city && cleaned.state) {
+      const cityLower = cleaned.city.toLowerCase();
+      const stateLower = cleaned.state.toLowerCase();
+      const tailLower = (match[2] + " " + match[3]).toLowerCase();
+      // Only strip if the trailing part matches the known city/state
+      if (
+        tailLower.includes(cityLower) ||
+        tailLower.includes(stateLower)
+      ) {
+        cleaned.address_line1 = match[1].trim();
+      }
+    }
+  }
+
+  return cleaned;
+}
+
+
 export type OnboardFormData = z.infer<typeof onboardSchema>;
 
 export interface MerchantSetupFormProps {
@@ -84,7 +179,7 @@ export function MerchantSetupForm({ onSuccess }: MerchantSetupFormProps) {
     setError(null);
 
     try {
-      await apiClient.onboardMerchant(data);
+      await apiClient.onboardMerchant(normalizeAddress(data));
       onSuccess();
     } catch (err) {
       if (err instanceof ApiError) {
@@ -274,14 +369,18 @@ export function MerchantSetupForm({ onSuccess }: MerchantSetupFormProps) {
                 >
                   Country
                 </label>
-                <input
+                <select
                   id="country"
-                  type="text"
-                  autoComplete="country-name"
                   {...register("country")}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                  placeholder="e.g. NG, US"
-                />
+                >
+                  <option value="">Select a country</option>
+                  {COUNTRY_OPTIONS.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
