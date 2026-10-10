@@ -19,6 +19,9 @@
   --color-accent: #7c3aed;
   --color-accent-hover: #6d28d9;
   --color-agent: #8b5cf6;
+  --color-agent-soft: #f5f3ff;
+  --color-primary-soft: #eef2ff;
+  --color-surface: #f1f5f9;
 
   --color-sidebar: #0f172a;
   --color-sidebar-border: rgba(255, 255, 255, 0.08);
@@ -48,4 +51,14 @@ body {
   background: var(--color-bg);
   color: var(--color-foreground);
   font-family: var(--font-display);
+}
+
+/* Smooth reveal for results that appear after the agent finishes its reply. */
+@keyframes mp-reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.mp-reveal { animation: mp-reveal 220ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .mp-reveal { animation: none; }
 }

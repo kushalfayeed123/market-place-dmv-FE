@@ -93,11 +93,12 @@ async function raw<T>(
   opts: {
     body?: unknown;
     form?: URLSearchParams;
+    formData?: FormData;
     idempotent?: boolean;
     retry?: number;
   } = {},
 ): Promise<T> {
-  const { body, form, idempotent, retry = 0 } = opts;
+  const { body, form, formData, idempotent, retry = 0 } = opts;
   const headers: Record<string, string> = {};
   const token = authStore.getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -106,6 +107,9 @@ async function raw<T>(
   let payload: BodyInit | undefined;
   if (form) {
     payload = form;
+  } else if (formData) {
+    /* fetch sets Content-Type: multipart/form-data with boundary automatically */
+    payload = formData;
   } else if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     payload = JSON.stringify(body);
@@ -169,8 +173,87 @@ export interface Product {
   base_price_amount: number;
   base_price_currency: string;
   attributes: Record<string, unknown>;
-  variants: unknown[];
+  variants: ProductVariant[];
   urls?: string[];
+}
+
+export interface ProductCreate {
+  title: string;
+  slug?: string | null;
+  description?: string | null;
+  fulfillment_type?: string;
+  base_price_amount: number;
+  base_price_currency?: string;
+  category_id?: string | null;
+  merchant_id?: string | null;
+  store_id?: string | null;
+  attributes?: Record<string, unknown>;
+  urls?: string[];
+  status?: string;
+}
+
+export interface ProductUpdate {
+  title?: string;
+  slug?: string | null;
+  description?: string | null;
+  fulfillment_type?: string;
+  base_price_amount?: number;
+  base_price_currency?: string;
+  category_id?: string | null;
+  status?: string;
+  attributes?: Record<string, unknown>;
+  urls?: string[];
+}
+
+export interface ProductLikeResponse {
+  count: number;
+  liked: boolean;
+}
+
+export interface StoreResponse {
+  id: string;
+  merchant_id: string;
+  name: string;
+  slug: string;
+  branding: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CategoryResponse {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductVariant {
+  id: string;
+  product_id: string;
+  sku: string;
+  attributes: Record<string, unknown>;
+  price_override_amount: number | null;
+  price_override_currency: string | null;
+  inventory_policy: string;
+  quantity_available: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductVariantCreate {
+  sku: string;
+  attributes?: Record<string, unknown>;
+  price_override_amount?: number | null;
+  price_override_currency?: string | null;
+  inventory_policy?: "tracked" | "untracked" | "unlimited";
+  quantity_available?: number;
+  quantity_reserved?: number;
+}
+
+export interface InventoryUpdate {
+  quantity_available?: number | null;
+  quantity_reserved?: number | null;
 }
 
 export interface Order {
@@ -272,14 +355,64 @@ export const apiClient = {
   getMe() {
     return raw<Record<string, unknown>>("GET", "/auth/me");
   },
-  getProducts() {
+    getProducts() {
     return raw<Product[]>("GET", "/catalog/products");
   },
   getProduct(id: string) {
     return raw<Product>("GET", `/catalog/products/${id}`);
   },
   getCategories() {
-    return raw<Array<Record<string, unknown>>>("GET", "/catalog/categories");
+    return raw<CategoryResponse[]>("GET", "/catalog/categories");
+  },
+  getMyStores(merchantId: string) {
+    return raw<StoreResponse[]>("GET", `/stores/merchant/${merchantId}`);
+  },
+  createProduct(payload: ProductCreate) {
+    return raw<Product>("POST", "/catalog/products", {
+      body: payload,
+      idempotent: true,
+    });
+  },
+  updateProduct(id: string, payload: ProductUpdate) {
+    return raw<Product>("PATCH", `/catalog/products/${id}`, {
+      body: payload,
+      idempotent: true,
+    });
+  },
+  uploadProductImage(productId: string, file: File) {
+    const form = new FormData();
+    form.append("image", file);
+    return raw<Product>("POST", `/catalog/products/${productId}/images`, {
+      formData: form,
+    });
+  },
+  createProductVariant(productId: string, payload: ProductVariantCreate) {
+    return raw<ProductVariant>("POST", `/catalog/products/${productId}/variants`, {
+      body: payload,
+      idempotent: true,
+    });
+  },
+  listProductVariants(productId: string) {
+    return raw<ProductVariant[]>("GET", `/catalog/products/${productId}/variants`);
+  },
+  likeProduct(productId: string) {
+    return raw<void>("POST", `/catalog/products/${productId}/like`, {
+      idempotent: true,
+    });
+  },
+  unlikeProduct(productId: string) {
+    return raw<void>("DELETE", `/catalog/products/${productId}/like`, {
+      idempotent: true,
+    });
+  },
+  getProductLikes(productId: string) {
+    return raw<ProductLikeResponse>("GET", `/catalog/products/${productId}/likes`);
+  },
+  updateInventory(variantId: string, payload: InventoryUpdate) {
+    return raw<Record<string, unknown>>("PUT", `/catalog/inventory/${variantId}`, {
+      body: payload,
+      idempotent: true,
+    });
   },
   getOrders() {
     return raw<Order[]>("GET", "/orders/");
@@ -290,7 +423,7 @@ export const apiClient = {
       idempotent: true,
     });
   },
-    processPayment(orderId: string, provider = "paystack") {
+  processPayment(orderId: string, provider = "paystack") {
     return raw<Record<string, unknown>>("POST", "/payments/process", {
       body: { order_id: orderId, provider },
       idempotent: true,

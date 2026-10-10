@@ -29,7 +29,8 @@ export function ResourceSection({ cfg, merchantId }: { cfg: SectionConfig; merch
   // The agent fires this after it executes an action, so manual and agent paths stay in sync.
   useEffect(() => { window.addEventListener("merchant:refresh", load); return () => window.removeEventListener("merchant:refresh", load); }, [load]);
 
-  async function run(row: any, act: RowAction) {
+    async function run(row: any, act: RowAction) {
+    if (!act.method || !act.path) return;
     setBusy(true); setErr(null);
     try { await mreq(act.method, act.path(row), act.body?.(row)); setPending(null); await load(); }
     catch (e) { setErr(e instanceof Error ? e.message : `${act.label} failed.`); }
@@ -78,6 +79,9 @@ export function ResourceSection({ cfg, merchantId }: { cfg: SectionConfig; merch
                       <span key={a.label} className="flex items-center gap-1.5 text-xs">{a.confirm}
                         <button disabled={busy} onClick={() => run(r, a)} className="rounded bg-[var(--color-danger-fg)] px-2 py-1 text-white">Yes</button>
                         <button onClick={() => setPending(null)} className="px-1 text-[var(--color-muted)]">No</button></span>
+                                        ) : a.href ? (
+                      <Link key={a.label} href={a.href(r)}
+                        className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs hover:bg-[var(--color-border)] text-[var(--color-foreground)]">{a.label}</Link>
                     ) : (
                       <button key={a.label} onClick={() => a.confirm ? setPending({ row: r, act: a }) : run(r, a)}
                         className={`rounded-md border border-[var(--color-border)] px-2.5 py-1 text-xs hover:bg-[var(--color-border)] ${a.tone === "danger" ? "text-[var(--color-danger-fg)]" : "text-[var(--color-foreground)]"}`}>{a.label}</button>))}

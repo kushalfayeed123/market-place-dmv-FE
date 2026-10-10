@@ -12,13 +12,14 @@ import {
   LogOut,
   Package,
   LayoutDashboard,
+  ShoppingBag,
 } from "lucide-react";
 import { useAuth } from "./context/AuthContext";
 
-import { ProductGrid } from "./components/catalog/ProductGrid";
+import { ProductGrid, ProductGridSkeleton } from "./components/catalog/ProductGrid";
 import { ProductCard } from "./components/catalog/ProductCard";
 import { ProductDetail } from "./components/catalog/ProductDetail";
-import { KBResultCard, type KBSearchResult } from "./components/catalog/KBResultCard";
+import { KBResultList, type KBSearchResult } from "./components/catalog/KBResultCard";
 import { CartSummary } from "./components/cart/CartSummary";
 import { OrderList } from "./components/orders/OrderList";
 import { OrderConfirmation } from "./components/orders/OrderConfirmation";
@@ -28,16 +29,22 @@ import { FulfillmentTracker } from "./components/fulfillment/FulfillmentTracker"
 import { ConfirmationDialog } from "./components/system/ConfirmationDialog";
 import { SignInPrompt } from "./components/system/SignInPrompt";
 import { ErrorMessage } from "./components/system/ErrorMessage";
-import { AgentChatPanel } from "./components/system/AgentChatPanel";
+import { AgentTranscript, AgentComposer } from "./components/system/AgentChatPanel";
 
 import type { Product } from "./components/catalog/ProductCard";
+import type {
+  CartState,
+  ProductGridDirectiveProps,
+  ProductDetailDirectiveProps,
+} from "./components/catalog/directives";
 import type { Order } from "./components/orders/OrderList";
-import type { CartSummaryProps } from "./components/cart/CartSummary";
+import type { CartSummaryProps, CartChange } from "./components/cart/CartSummary";
 import type { LedgerEntry } from "./components/merchant/LedgerTable";
 import type { UiDirective, CanvasMessage } from "./types/components";
 import type { Product as BackendProduct } from "./lib/api/client";
 import { apiClient } from "./lib/api/client";
 import { agentGateway } from "./lib/agent-gateway";
+import { cleanAgentText, dedupeDirectives } from "./lib/agent-turn";
 
 // Backend -> UI view-model mappers
 
@@ -92,61 +99,90 @@ function partitionResults(
 
 type ActionHandler = (action: string, data?: unknown) => void;
 
+function asProducts(v: unknown): Product[] {
+  return Array.isArray(v)
+    ? partitionResults(v as Array<Record<string, unknown>>).products
+    : [];
+}
+
 /**
  * Renders an agent-emitted ui_directive into the matching registry
  * component. Props are narrowed defensively - on the directive-rendering
- * path we degrade to <ErrorMessage> rather than crash (per project
- * conventions: no any on this path).
+ * path we degrade to <ErrorMessage> rather than crash (no any here).
+ *
+ * Agent actions: view_product, add_to_cart ({ product, quantity }),
+ * suggest (free-text follow-up), back, checkout, confirm, cancel.
  */
 function RenderDirective({
   directive,
   onAction,
+  cartState,
+  readOnly,
 }: {
   directive: UiDirective;
   onAction?: ActionHandler;
+  cartState?: CartState;
+  readOnly?: boolean;
 }) {
   const props = directive.props;
+  const addToCart = (p: Product, quantity = 1) =>
+    onAction?.("add_to_cart", { product: p, quantity });
+  const suggest = (text: string) => onAction?.("suggest", text);
 
   if (directive.component === "ProductGrid") {
-    const raw = Array.isArray(props.items)
-      ? (props.items as Array<Record<string, unknown>>)
-      : Array.isArray(props.products)
-      ? (props.products as Array<Record<string, unknown>>)
-      : [];
-    const { products, docs } = partitionResults(raw);
-    if (docs.length) {
-      return (
-        <div className="space-y-3">
-          {docs.map((doc) => (
-            <KBResultCard
-              key={doc.id ?? doc.text?.slice(0, 24) ?? "kb"}
-              doc={doc}
-              onViewProduct={(id) => onAction?.("view_product", id)}
-            />
-          ))}
-        </div>
-      );
+    const gp = props as ProductGridDirectiveProps;
+    const raw = Array.isArray(gp.items) ? gp.items : Array.isArray(gp.products) ? gp.products : [];
+    const { products, docs } = partitionResults(raw as Array<Record<string, unknown>>);
+    if (!products.length && !docs.length) {
+      return <ProductGrid products={[]} query={gp.query} suggestions={gp.suggestions} onSuggest={suggest} />;
     }
-    if (products.length) {
-      return (
-        <ProductGrid
-          products={products}
-          query={props.query as string | undefined}
-          onView={(p) => onAction?.("view_product", p)}
-          onAddToCart={(p) => onAction?.("add_to_cart", p)}
-            />
-      );
-    }
-    return <ErrorMessage message="No results to display." />;
+    return (
+      <div className="space-y-6">
+        {products.length > 0 && (
+          <ProductGrid
+            products={products}
+            query={gp.query}
+            summary={gp.summary}
+            sort={gp.sort}
+            category={gp.category}
+            suggestions={gp.suggestions}
+            highlights={gp.highlights}
+            cartState={cartState}
+            onView={(p) => onAction?.("view_product", p)}
+            onAddToCart={(p) => addToCart(p)}
+            onSuggest={suggest}
+          />
+        )}
+        {docs.length > 0 && (
+          <KBResultList docs={docs} onViewProduct={(id) => onAction?.("view_product", id)} />
+        )}
+      </div>
+    );
   }
   if (directive.component === "ProductCard") {
-    return <ProductCard product={props.product as Product} />;
+    const product = props.product as Product;
+    return (
+      <div className="max-w-[240px]">
+        <ProductCard
+          product={product}
+          cartState={cartState?.[product.id]}
+          onView={(p) => onAction?.("view_product", p)}
+          onAddToCart={(p) => addToCart(p)}
+        />
+      </div>
+    );
   }
-    if (directive.component === "ProductDetail") {
+  if (directive.component === "ProductDetail") {
+    const dp = props as unknown as ProductDetailDirectiveProps;
     return (
       <ProductDetail
-        product={props as unknown as (Product & { description?: string })}
-        onAddToCart={(p) => onAction?.("add_to_cart", p)}
+        product={dp}
+        related={asProducts(dp.related)}
+        cartState={cartState?.[dp.id]}
+        onBack={() => onAction?.("back")}
+        onAddToCart={(p, qty) => addToCart(p, qty)}
+        onView={(p) => onAction?.("view_product", p)}
+        onSuggest={suggest}
       />
     );
   }
@@ -160,18 +196,21 @@ function RenderDirective({
         }>)
       : [];
     return (
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {items.map((cat) => (
-          <div
+          <button
             key={cat.id ?? cat.slug ?? cat.name}
-            className="flex flex-col items-center gap-1 rounded-lg border border-[var(--color-border)] px-3 py-2 text-center">
+            type="button"
+            onClick={() => onAction?.("suggest", `Show me ${cat.name} products`)}
+            className="flex min-h-16 flex-col items-start justify-center gap-0.5 rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-left transition-colors hover:border-[var(--color-primary)]"
+          >
             <span className="text-sm font-medium">{cat.name}</span>
             {cat.product_count != null && (
               <span className="text-xs text-[var(--color-muted)]">
                 {cat.product_count} item{cat.product_count === 1 ? "" : "s"}
               </span>
             )}
-          </div>
+          </button>
         ))}
       </div>
     );
@@ -179,7 +218,12 @@ function RenderDirective({
   if (directive.component === "CartSummary") {
     const cart = props as unknown as CartSummaryProps;
     return (
-      <CartSummary {...cart} onCheckout={() => onAction?.("checkout")} />
+      <CartSummary
+        {...cart}
+        readOnly={readOnly}
+        onCheckout={() => onAction?.("checkout")}
+        onUpdateItems={(changes) => onAction?.("update_cart", changes)}
+      />
     );
   }
   if (directive.component === "OrderList") {
@@ -267,6 +311,12 @@ function RenderDirective({
 // users can browse a lot of products at once; agent search results are
 // rendered in their own section above the browse grid.
 
+const STARTER_PROMPTS = [
+  "Show me what's popular",
+  "Find something under ₦50,000",
+  "What categories do you have?",
+];
+
 export default function App() {
   const { user, isAuthenticated, logout } = useAuth();
 
@@ -279,6 +329,9 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [agentConnected, setAgentConnected] = useState(false);
+  // Add-to-cart feedback per product id, and the latest known cart size.
+  const [cartState, setCartState] = useState<CartState>({});
+  const [cartCount, setCartCount] = useState<number | null>(null);
 
   // -- Persistent agent chat transcript
   // Keeps every user message + agent reply (text and directives) so the
@@ -316,112 +369,267 @@ export default function App() {
 
   useEffect(() => { loadProducts(); }, []);
 
+  // ---- Turn handling -------------------------------------------------
+  // A turn = one user message and the agent's whole answer. Within a turn:
+  //   1. text streams live into ONE bubble (coalesced to one render per frame),
+  //   2. directives (results) are HELD, never shown mid-stream,
+  //   3. when the stream ends everything is committed in one batch, text first,
+  //      then the results, so the summary always precedes the results,
+  //   4. the whole UI stays locked (searching = true) until that commit.
+  const activeRef = useRef(false); // a turn is in flight; events are accepted
+  const busyRef = useRef(false); // mirror of `searching`, readable from any closure
+  const heldRef = useRef<UiDirective[]>([]);
+  const errorRef = useRef<string | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const lastEventRef = useRef(0);
+  const cartIntentRef = useRef(false); // this turn is about the cart: show only the cart
+  const addedProductRef = useRef<string | null>(null); // product just added, to highlight its line
+  const [pendingKinds, setPendingKinds] = useState<string[]>([]);
+
+  function touch() {
+    lastEventRef.current = Date.now();
+  }
+  function scheduleTextFlush() {
+    if (rafRef.current !== null) return;
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      setStatusText(cleanAgentText(textBufferRef.current) || null);
+    });
+  }
+
+  function finishTurn() {
+    if (!activeRef.current) return;
+    activeRef.current = false;
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+
+    const text = cleanAgentText(textBufferRef.current).trim();
+    const error = errorRef.current;
+    const cartIntent = cartIntentRef.current;
+    const addedId = addedProductRef.current;
+    const directives = dedupeDirectives(heldRef.current, text.length > 0, { cartIntent }).map((d) =>
+      cartIntent && addedId && d.component === "CartSummary"
+        ? ({ ...d, props: { ...d.props, highlight_product_id: addedId } } as UiDirective)
+        : d,
+    );
+    textBufferRef.current = "";
+    heldRef.current = [];
+    errorRef.current = null;
+
+    const batch: Array<Partial<CanvasMessage>> = [];
+    if (text) batch.push({ content: text });
+    for (const d of directives) {
+      batch.push({ directive: d });
+      if (d.component === "CartSummary") {
+        const n = Number((d.props as Record<string, unknown>).item_count);
+        if (Number.isFinite(n)) setCartCount(n);
+        settleCart("added");
+      }
+    }
+    if (error && error !== text) batch.push({ content: error });
+    if (!batch.length) batch.push({ content: "I didn't get a response. Please try again." });
+
+    const msgs = batch.map(
+      (m) =>
+        ({
+          id: String(++chatIdRef.current),
+          role: "agent",
+          timestamp: new Date(),
+          ...m,
+        }) as CanvasMessage,
+    );
+    setChatMessages((prev) => [...prev, ...msgs]); // one update = one render
+    setStatusText(null);
+    setPendingKinds([]);
+    busyRef.current = false;
+    cartIntentRef.current = false;
+    addedProductRef.current = null;
+    setSearching(false);
+    settleCart("clear");
+  }
+
   useEffect(() => {
     const stored = agentGateway.getStoredSessionId();
     agentGateway.connect(stored ?? undefined);
     agentGateway.setHandlers({
       onSession: () => {
-        textBufferRef.current = "";
-        setStatusText(null);
+        touch();
         setAgentConnected(true);
       },
       onText: (content) => {
-        if (content) {
-          textBufferRef.current = (textBufferRef.current ?? "") + content;
-        }
-        setStatusText(textBufferRef.current || null);
+        if (!activeRef.current || !content) return;
+        touch();
+        textBufferRef.current += content;
+        scheduleTextFlush();
       },
       onDirective: (directive) => {
-        setSearching(false);
-        // Skip ProductGrid directives that carry no items — the agent may
-        // emit an empty semantic_search result before a populated search_products
-        // result. Showing "No results" for the intermediate one is confusing.
-        if (directive.component === "ProductGrid") {
-          const raw = Array.isArray(directive.props.items)
-            ? directive.props.items
-            : Array.isArray(directive.props.products)
-              ? directive.props.products
-              : [];
-          if (!Array.isArray(raw) || raw.length === 0) return;
-        }
-        pushChat({ role: "agent", directive });
+        if (!activeRef.current) return;
+        touch();
+        heldRef.current.push(directive);
+        setPendingKinds(heldRef.current.map((d) => d.component));
       },
       onError: (error) => {
-        setSearching(false);
-        setStatusText(error);
-        if (textBufferRef.current) {
-          pushChat({ role: "agent", content: textBufferRef.current });
-          textBufferRef.current = "";
-        }
-        pushChat({ role: "agent", content: error });
+        if (!activeRef.current) return;
+        touch();
+        errorRef.current = error;
       },
-      onEnd: () => {
-        setSearching(false);
-        if (textBufferRef.current) {
-          pushChat({ role: "agent", content: textBufferRef.current });
-          textBufferRef.current = "";
-        }
-      },
+      onEnd: () => finishTurn(),
     });
-    return () => agentGateway.disconnect();
+    // Never leave the UI locked if a stream stalls.
+    const watchdog = window.setInterval(() => {
+      if (activeRef.current && Date.now() - lastEventRef.current > 60_000) {
+        errorRef.current = errorRef.current ?? "The agent took too long to respond. Please try again.";
+        finishTurn();
+      }
+    }, 5000);
+    return () => {
+      window.clearInterval(watchdog);
+      agentGateway.disconnect();
+    };
   }, []);
+
+  function sendToAgent(
+    text: string,
+    confirmedToken?: string,
+    opts?: { cart?: boolean; addedProductId?: string },
+  ) {
+    if (busyRef.current) return; // locked while the agent is responding
+    if (!agentGateway.isConnected()) {
+      settleCart("clear");
+      pushChat({ role: "agent", content: "The assistant is offline right now. Please try again shortly." });
+      return;
+    }
+    cartIntentRef.current = !!opts?.cart;
+    addedProductRef.current = opts?.addedProductId ?? null;
+    busyRef.current = true;
+    activeRef.current = true;
+    touch();
+    textBufferRef.current = "";
+    heldRef.current = [];
+    errorRef.current = null;
+    setPendingKinds([]);
+    setStatusText(null);
+    setSearching(true);
+    addUserMessage(text);
+    void agentGateway.sendMessage(text, confirmedToken);
+  }
 
   function handleChatSubmit(q: string) {
     const trimmed = q.trim();
-    if (!trimmed) return;
-    setSearching(true);
-    textBufferRef.current = "";
-    setStatusText(null);
-        addUserMessage(trimmed);
-    agentGateway.sendMessage(trimmed);
+    if (trimmed) sendToAgent(trimmed);
   }
 
   function handleClear() {
+    if (busyRef.current) return;
     setChatMessages([]);
     chatIdRef.current = 0;
-    setSearching(false);
     setStatusText(null);
+    setCartState({});
     textBufferRef.current = "";
   }
 
+  // Cart feedback: a CartSummary directive confirms the add; anything else
+  // (error, sign-in, end of turn) returns the button to idle without claiming success.
+  function settleCart(outcome: "added" | "clear") {
+    setCartState((prev) => {
+      const next: CartState = {};
+      for (const [id, s] of Object.entries(prev)) {
+        if (s === "added" || (s === "adding" && outcome === "added")) next[id] = "added";
+      }
+      return next;
+    });
+    if (outcome === "added") {
+      window.setTimeout(
+        () =>
+          setCartState((prev) =>
+            Object.fromEntries(Object.entries(prev).filter(([, s]) => s !== "added")),
+          ),
+        2500,
+      );
+    }
+  }
+
   function handleViewProduct(p: Product) {
+    if (busyRef.current) return;
+    // Related products: same category or same merchant, from the loaded catalog.
+    const related = browseProducts
+      .filter(
+        (x) =>
+          x.id !== p.id &&
+          ((p.category_name && x.category_name === p.category_name) ||
+            x.merchant_id === p.merchant_id),
+      )
+      .slice(0, 4);
     pushChat({
       role: "agent",
       directive: {
         type: "ui_directive",
         version: 1,
         component: "ProductDetail",
-        props: p as unknown as Record<string, unknown>,
+        props: { ...p, related } as unknown as Record<string, unknown>,
         correlation_id: `local-${chatIdRef.current + 1}`,
       } as UiDirective,
     });
   }
 
-  function handleAddToCart(p: Product) {
-    addUserMessage(`Add ${p.name} to my cart`);
-    agentGateway.sendMessage(`Add ${p.name} to my cart`);
+  function handleAddToCart(p: Product, quantity = 1) {
+    if (busyRef.current) return;
+    setCartState((prev) => ({ ...prev, [p.id]: "adding" }));
+    // After an add the next step is choosing the quantity, so the turn shows the cart, not product details.
+    sendToAgent(
+      quantity > 1 ? `Add ${quantity} of ${p.name} to my cart` : `Add ${p.name} to my cart`,
+      undefined,
+      { cart: true, addedProductId: p.id },
+    );
+  }
+
+  // Quantities are absolute (idempotent): "set to N", and 0 removes the line.
+  function handleCartUpdate(changes: CartChange[]) {
+    if (busyRef.current || changes.length === 0) return;
+    const parts = changes.map((c) =>
+      c.quantity === 0
+        ? `remove "${c.product_name}" (variant ${c.variant_id})`
+        : `set "${c.product_name}" (variant ${c.variant_id}) to quantity ${c.quantity}`,
+    );
+    sendToAgent(`Update my cart: ${parts.join("; ")}.`, undefined, { cart: true });
+  }
+
+  function scrollToResults() {
+    const grids = chatMessages.filter((m) => m.directive?.component === "ProductGrid");
+    const last = grids[grids.length - 1];
+    document
+      .getElementById(last ? `msg-${last.id}` : "browse")
+      ?.scrollIntoView({ block: "start" });
   }
 
   function handleAction(action: string, data?: unknown) {
+    if (busyRef.current && action !== "cancel") return; // locked while the agent responds
     if (action === "view_product") {
       if (typeof data === "string") {
-        addUserMessage(`Show me details for product ${data}`);
-        agentGateway.sendMessage(`Show me details for product ${data}`);
-        setSearching(true);
+        // Open instantly from the loaded catalog when we can; else ask the agent.
+        const local = browseProducts.find((x) => x.id === data);
+        if (local) handleViewProduct(local);
+        else sendToAgent(`Show me details for product ${data}`);
       } else {
         handleViewProduct(data as Product);
       }
     } else if (action === "add_to_cart") {
-      addUserMessage(`Add ${(data as Product).name} to my cart`);
-      agentGateway.sendMessage(`Add ${(data as Product).name} to my cart`);
+      const d = data as { product: Product; quantity?: number };
+      handleAddToCart(d.product, d.quantity ?? 1);
+    } else if (action === "update_cart") {
+      handleCartUpdate(data as CartChange[]);
+    } else if (action === "suggest") {
+      sendToAgent(String(data));
+    } else if (action === "back") {
+      scrollToResults();
     } else if (action === "checkout") {
-      addUserMessage("checkout please");
-      agentGateway.sendMessage("checkout please");
+      sendToAgent("checkout please");
     } else if (action === "track_order") {
       // directive already rendered in chat
     } else if (action === "confirm") {
-      addUserMessage("Confirmed");
-      agentGateway.sendMessage("Confirmed", data as string | undefined);
+      sendToAgent("Confirmed", data as string | undefined);
     } else if (action === "cancel") {
       setStatusText(null);
     }
@@ -461,6 +669,21 @@ export default function App() {
                 Agent {agentConnected ? "online" : "offline"}
               </span>
             </span>
+            <button
+              type="button"
+              onClick={() => sendToAgent("Show my cart", undefined, { cart: true })}
+              disabled={searching}
+              aria-label={cartCount ? `Cart, ${cartCount} items` : "Cart"}
+              className="flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+            >
+              <ShoppingBag size={18} />
+              <span className="hidden sm:inline">Cart</span>
+              {!!cartCount && (
+                <span className="min-w-[20px] rounded-full bg-[var(--color-primary)] px-1.5 text-center text-[11px] font-semibold leading-5 text-white">
+                  {cartCount}
+                </span>
+              )}
+            </button>
             {isAuthenticated && (user?.role === "merchant_owner" || user?.role === "merchant_staff") && (
               <a
                 href="/merchant/dashboard"
@@ -491,51 +714,59 @@ export default function App() {
 
       </header>
 
-      <main className="max-w-7xl mx-auto px-5 sm:px-8 py-6">
-        {/* Chat panel - starts minimal (input only) and expands as
-            the conversation grows. Never fixed at the bottom. */}
-                <AgentChatPanel
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-8">
+        <AgentTranscript
           messages={chatMessages}
-          inputPlaceholder="Search products, ask questions..."
+          starters={STARTER_PROMPTS}
           onSend={handleChatSubmit}
           onClear={handleClear}
           isSearching={searching}
           statusText={statusText}
-          renderDirective={(d) => (
-            <RenderDirective directive={d} onAction={handleAction} />
+          pendingKinds={pendingKinds}
+          renderDirective={(d, meta) => (
+            <RenderDirective directive={d} onAction={handleAction} cartState={cartState} readOnly={!meta.isLatest} />
           )}
         />
-        {/* Browse all products (always visible below the chat) */}
-        <section className="mt-4">
-          <h2 className="text-lg font-semibold mb-3">All products</h2>
+
+        <section
+          id="browse"
+          {...(searching ? ({ inert: "" } as Record<string, string>) : {})}
+          className={"mt-10 scroll-mt-20 transition-opacity duration-200 " + (searching ? "opacity-70" : "")}
+        >
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold">Browse all products</h2>
+            <p className="text-sm text-[var(--color-muted)]">
+              Sort and filter here, or ask the agent to narrow it down.
+            </p>
+          </div>
           {browseLoading ? (
-            <div className="columns-2 sm:columns-3 md:columns-4 lg:columns-5 gap-3">
-              {Array.from({ length: 9 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="aspect-[4/3] bg-gray-100 rounded-xl animate-pulse mb-3 break-inside-avoid"
-                />
-              ))}
-            </div>
+            <ProductGridSkeleton count={10} />
           ) : browseError ? (
-            <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-              <Package size={16} />
+            <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[var(--color-border)] bg-white p-6 text-sm text-[var(--color-muted)]">
+              <Package size={18} />
               <span>{browseError}</span>
               <button
                 onClick={loadProducts}
-                className="underline text-[var(--color-primary)] hover:text-[var(--color-primary-hover)]"
+                className="h-9 rounded-lg bg-[var(--color-primary)] px-4 font-medium text-white hover:bg-[var(--color-primary-hover)]"
               >
-                Retry
+                Try again
               </button>
             </div>
           ) : (
             <ProductGrid
               products={browseProducts}
+              cartState={cartState}
               onView={handleViewProduct}
-              onAddToCart={handleAddToCart}
+              onAddToCart={(p) => handleAddToCart(p)}
             />
           )}
         </section>
+
+        <AgentComposer
+          placeholder="Search products or ask the agent…"
+          onSend={handleChatSubmit}
+          isSearching={searching}
+        />
       </main>
 
       <footer className="max-w-7xl mx-auto px-5 sm:px-8 py-6 border-t border-[var(--color-border)] text-center text-xs text-[var(--color-muted)]">

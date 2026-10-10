@@ -3,10 +3,11 @@ import { Package, ShoppingBag, Truck, Wallet, ShieldAlert, MessageSquare, Layout
 export type CellKind = "text" | "money" | "date" | "badge";
 export interface Column { key: string; label: string; kind?: CellKind; align?: "right" }
 export interface RowAction {
-  label: string; method: "POST" | "PATCH" | "DELETE"; path: (row: any) => string;
+  label: string; method?: "POST" | "PATCH" | "DELETE"; path?: (row: any) => string;
   body?: (row: any) => unknown; when?: (row: any) => boolean;
   confirm?: string;            // shown in a confirm step; use for money/irreversible actions
   tone?: "danger";
+  href?: (row: any) => string; // when present, renders as Link instead of API button
 }
 export interface SectionConfig {
   key: string; label: string; icon: any; hint: string;
@@ -34,6 +35,7 @@ export const SECTIONS: SectionConfig[] = [
     columns: [{ key: "title", label: "Product" }, { key: "sku", label: "SKU" }, { key: "stock", label: "In stock" },
       { key: "price", label: "Price", kind: "money", align: "right" }, { key: "status", label: "Status", kind: "badge" }],
     actions: [
+      { label: "Edit", href: r => `/merchant/products/${r.id}/edit` },
       { label: "Publish", method: "POST", path: r => `/products/${r.id}/publish`, when: r => r.status === "draft" },
       { label: "Unpublish", method: "POST", path: r => `/products/${r.id}/unpublish`, when: r => r.status === "active" },
       { label: "Delete", method: "DELETE", path: r => `/products/${r.id}`, confirm: "Delete this product permanently?", tone: "danger" },

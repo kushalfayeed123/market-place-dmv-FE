@@ -1,5 +1,6 @@
-import { ShoppingCart, Star, Package } from "lucide-react";
 import { useState } from "react";
+import { ShoppingCart, Star, Package, Check, Loader2, Sparkles } from "lucide-react";
+import { formatMoney, cleanLabel } from "./format";
 
 export interface Product {
   id: string;
@@ -16,130 +17,137 @@ export interface Product {
   status: string;
 }
 
-function fmt(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(amount / 100);
-}
-
-// Ordered image list: prefer the new `urls` array, fall back to legacy `image_url`.
-function productImages(p: Product): string[] {
+/** Ordered image list: prefer `urls`, fall back to legacy `image_url`. */
+export function productImages(p: Product): string[] {
   if (p.urls && p.urls.length) return p.urls;
   return p.image_url ? [p.image_url] : [];
 }
 
 export function ProductCard({
   product,
+  badge,
+  cartState,
   onAddToCart,
   onView,
 }: {
   product: Product;
+  /** Agent highlight, e.g. "Best match". */
+  badge?: string;
+  cartState?: "adding" | "added";
   onAddToCart?: (p: Product) => void;
   onView?: (p: Product) => void;
 }) {
-  const outOfStock = (product.quantity_available ?? 1) === 0;
+  const [broken, setBroken] = useState(false);
   const images = productImages(product);
-  const [active, setActive] = useState(0);
+  const outOfStock = product.quantity_available === 0;
+  const lowStock =
+    product.quantity_available !== undefined &&
+    product.quantity_available > 0 &&
+    product.quantity_available <= 10;
+  const meta = [cleanLabel(product.merchant_name), product.category_name]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div
-      className="group bg-white rounded-xl overflow-hidden border border-[var(--color-border)] shadow-[var(--shadow-sm)] hover:shadow-[var(--shadow-md)] hover:-translate-y-0.5 transition-all duration-200 cursor-pointer flex flex-col"
-      onClick={() => onView?.(product)}
-    >
-      <div className="relative aspect-[4/3] bg-gray-50 overflow-hidden">
-        {images[active] ? (
-          <img
-            src={images[active]}
-            alt={product.name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-          />
+    <article className="group flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--color-border)] bg-white shadow-[var(--shadow-sm)] transition-shadow hover:shadow-[var(--shadow-md)]">
+      <button
+        type="button"
+        onClick={() => onView?.(product)}
+        aria-label={`View ${product.name}`}
+        className="relative block aspect-square w-full overflow-hidden bg-slate-100 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-primary)]"
+      >
+        {images[0] && !broken ? (
+          <>
+            <img
+              src={images[0]}
+              alt=""
+              loading="lazy"
+              onError={() => setBroken(true)}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            {images[1] && (
+              <img
+                src={images[1]}
+                alt=""
+                loading="lazy"
+                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+              />
+            )}
+          </>
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
-            <Package size={40} className="text-gray-300" />
-          </div>
+          <span className="flex h-full w-full items-center justify-center">
+            <Package size={40} className="text-slate-300" />
+          </span>
         )}
-        {product.category_name && (
-          <span
-            className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-white/90 text-[var(--color-muted)] rounded-full border border-[var(--color-border)]"
-            title={product.category_name}
-          >
-            {product.category_name}
+        {badge && (
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-[var(--color-agent)] px-2 py-1 text-xs font-medium text-white shadow-sm">
+            <Sparkles size={12} /> {badge}
           </span>
         )}
         {outOfStock && (
-          <div className="absolute inset-0 bg-white/70 flex items-center justify-center">
-            <span className="text-sm font-semibold text-gray-500">Out of stock</span>
-          </div>
+          <span className="absolute inset-0 flex items-center justify-center bg-white/75 text-sm font-semibold text-slate-600">
+            Sold out
+          </span>
         )}
-        {/* Dot pager — only for multi-image products, clickable to switch the main shot. */}
-        {images.length > 1 && (
-          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-center gap-0.75">
-            {images.map((_, i) => (
-              <button
-                key={i}
-                type="button"
-                aria-label={`View image ${i + 1} of ${images.length}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActive(i);
-                }}
-                className={
-                  i === active
-                    ? "w-4 h-4 rounded-full bg-white shadow ring-1 ring-white"
-                    : "w-4 h-4 rounded-full bg-white/60 hover:bg-white transition-colors"
-                }
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      </button>
 
-      <div className="p-2.5 flex flex-col gap-0.5 flex-1">
-        <p className="text-[10px] text-[var(--color-muted)] truncate" title={product.merchant_name}>
-          {product.merchant_name}
-        </p>
-        <h3
-          className="text-[12px] font-medium text-[var(--color-foreground)] leading-snug line-clamp-2"
-          title={product.name}
-        >
-          {product.name}
+      <div className="flex flex-1 flex-col gap-1 p-3">
+        {meta && (
+          <p className="truncate text-xs text-[var(--color-muted)]" title={meta}>
+            {meta}
+          </p>
+        )}
+        <h3 className="text-sm font-medium leading-snug text-[var(--color-foreground)]">
+          <button
+            type="button"
+            onClick={() => onView?.(product)}
+            title={product.name}
+            className="line-clamp-2 text-left hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            {product.name}
+          </button>
         </h3>
 
         {product.rating !== undefined && (
-          <div className="flex items-center gap-1 mt-0.5">
-            <Star size={10} className="fill-[var(--color-accent)] text-[var(--color-accent)]" />
-            <span className="text-[10px] font-medium text-[var(--color-foreground)]">{product.rating}</span>
-            <span className="text-[10px] text-[var(--color-muted)]">({product.reviews?.toLocaleString()})</span>
-          </div>
+          <p className="flex items-center gap-1 text-xs text-[var(--color-muted)]">
+            <Star size={12} className="fill-[var(--color-accent)] text-[var(--color-accent)]" />
+            <span className="font-medium text-[var(--color-foreground)]">{product.rating}</span>
+            {product.reviews !== undefined && <span>({product.reviews.toLocaleString()})</span>}
+          </p>
         )}
 
-        <div className="mt-auto pt-1.5 flex items-center justify-between">
-          <span className="font-semibold text-[var(--color-primary)] font-[var(--font-mono)] text-[13px]">
-            {fmt(product.price.amount, product.price.currency)}
+        {lowStock && (
+          <p className="text-xs font-medium text-[var(--color-warning-fg)]">
+            Only {product.quantity_available} left
+          </p>
+        )}
+
+        <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+          <span className="font-[var(--font-mono)] text-base font-semibold text-[var(--color-foreground)]">
+            {formatMoney(product.price.amount, product.price.currency)}
           </span>
           <button
             type="button"
-            disabled={outOfStock}
-            onClick={(e) => {
-              e.stopPropagation();
-              onAddToCart?.(product);
-            }}
-            className="p-1 rounded-lg bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            disabled={outOfStock || cartState === "adding"}
+            onClick={() => onAddToCart?.(product)}
+            aria-live="polite"
+            className={
+              "inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 " +
+              (cartState === "added"
+                ? "bg-[var(--color-success-fg)]"
+                : "bg-[var(--color-primary)] hover:bg-[var(--color-primary-hover)]")
+            }
           >
-            <ShoppingCart size={12} />
+            {cartState === "adding" ? (
+              <><Loader2 size={14} className="animate-spin" /> Adding</>
+            ) : cartState === "added" ? (
+              <><Check size={14} /> Added</>
+            ) : (
+              <><ShoppingCart size={14} /> Add</>
+            )}
           </button>
         </div>
-
-        {product.quantity_available !== undefined &&
-          product.quantity_available > 0 &&
-          product.quantity_available <= 10 && (
-            <p className="text-[9px] text-[var(--color-warning)] font-medium">
-              Only {product.quantity_available} left
-            </p>
-          )}
       </div>
-    </div>
+    </article>
   );
 }

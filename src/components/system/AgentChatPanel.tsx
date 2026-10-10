@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Send, Bot, User, Trash2 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactNode, type FormEvent } from "react";
+import { Send, Sparkles, Trash2, ChevronDown, Loader2 } from "lucide-react";
 import type { UiDirective } from "@/types/components";
+import { ProductGridSkeleton } from "../catalog/ProductGrid";
 
 export interface ChatMessage {
   id: string;
@@ -13,49 +13,227 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-interface AgentChatPanelProps {
-  messages: ChatMessage[];
-  inputPlaceholder?: string;
-  onSend: (message: string) => void;
-  isSearching?: boolean;
-  statusText?: string | null;
-  /** Render an agent ui_directive inline within the chat transcript. */
-  renderDirective?: (directive: UiDirective) => ReactNode;
-  /** Clear the entire conversation / search results. */
-  onClear?: () => void;
+/** Directive types that collapse once a newer one of the same type arrives. */
+const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary"]);
+
+/** `inert` blocks mouse, keyboard and assistive-tech interaction (React 18 has no typed prop for it). */
+const inertProps = (on: boolean) => (on ? ({ inert: "" } as Record<string, string>) : {});
+
+function summarize(d: UiDirective): string {
+  const p = d.props as Record<string, unknown>;
+  if (d.component === "ProductGrid") {
+    const items = Array.isArray(p.items) ? p.items : Array.isArray(p.products) ? p.products : [];
+    const q = typeof p.query === "string" && p.query ? `Results for “${p.query}”` : "Earlier results";
+    return `${q} · ${items.length} ${items.length === 1 ? "item" : "items"}`;
+  }
+  if (d.component === "CartSummary") {
+    const n = Number(p.item_count);
+    return `Earlier cart${Number.isFinite(n) ? ` · ${n} ${n === 1 ? "item" : "items"}` : ""}`;
+  }
+  return `Viewed ${typeof p.name === "string" ? p.name : "a product"}`;
 }
 
-/**
- * Chat transcript panel.
- *
- * Renders the conversation history (user messages, agent text, and agent
- * ui_directives rendered inline) in a vertically-stacked, non-fixed-height
- * panel. Starts minimal (input only) and grows naturally as messages accrue.
- * The page scrolls normally — no internal scroll containers — so search
- * results rendered inline never cause erratic jumping.
- */
-export function AgentChatPanel({
+function AgentAvatar() {
+  return (
+    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-agent-soft)] text-[var(--color-agent)]">
+      <Sparkles size={15} />
+    </div>
+  );
+}
+
+/** One bubble component for BOTH the live (streaming) text and the committed message, so the swap is invisible. */
+function AgentBubble({ children, live }: { children: ReactNode; live?: boolean }) {
+  return (
+    <div className="flex gap-2.5">
+      <AgentAvatar />
+      <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tl-md border border-[var(--color-border)] bg-white px-4 py-2.5 text-sm leading-relaxed">
+        {children}
+        {live && (
+          <span aria-hidden="true" className="ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse bg-[var(--color-agent)]" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-1 py-1" aria-label="Agent is typing">
+      {[0, 1, 2].map((i) => (
+        <span key={i} className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" style={{ animationDelay: `${i * 120}ms` }} />
+      ))}
+    </span>
+  );
+}
+
+/** Reserves space for the results that are being held until the agent finishes talking. */
+function ResultsPlaceholder({ kinds }: { kinds: string[] }) {
+  if (kinds.some((k) => k === "ProductGrid" || k === "ProductCard" || k === "CategoryList")) {
+    return <ProductGridSkeleton count={5} />;
+  }
+  if (kinds.includes("ProductDetail")) {
+    return <div aria-hidden="true" className="h-72 animate-pulse rounded-2xl bg-slate-100" />;
+  }
+  return <div aria-hidden="true" className="h-24 animate-pulse rounded-2xl bg-slate-100" />;
+}
+
+export interface AgentTranscriptProps {
+  messages: ChatMessage[];
+  /** True from the moment a message is sent until the agent has fully finished. Locks all actions. */
+  isSearching?: boolean;
+  /** Live text of the reply that is currently streaming. */
+  statusText?: string | null;
+  /** Components of results received but held back until the reply is complete. */
+  pendingKinds?: string[];
+  starters?: string[];
+  onSend: (message: string) => void;
+  onClear?: () => void;
+  /** `isLatest` is false for older results of the same type, which should be read-only. */
+  renderDirective?: (directive: UiDirective, meta: { id: string; isLatest: boolean }) => ReactNode;
+}
+
+export function AgentTranscript({
   messages,
-  inputPlaceholder = "Ask the agent...",
-  onSend,
   isSearching = false,
   statusText,
-  renderDirective,
+  pendingKinds = [],
+  starters,
+  onSend,
   onClear,
-}: AgentChatPanelProps) {
-  const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  renderDirective,
+}: AgentTranscriptProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const prevCount = useRef(0);
+  const liveRef = useRef<HTMLDivElement>(null);
 
-  // Scroll to bottom smoothly when messages change so the
-  // latest response (and any inline results) stays in view.
-  // Uses "auto" — not "smooth" — to avoid erratic page jank
-  // when large directive results render.
+  // When messages are added, bring the FIRST new one into view. For an agent reply that is the
+  // text summary, so the summary and the start of the results are visible together.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView(false);
-  }, [messages, isSearching, statusText]);
+    const prev = prevCount.current;
+    if (messages.length > prev) {
+      const target = messages[prev];
+      document
+        .getElementById(`msg-${target.id}`)
+        ?.scrollIntoView({ block: target.role === "agent" ? "start" : "nearest" });
+    }
+    prevCount.current = messages.length;
+  }, [messages]);
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    if (isSearching) liveRef.current?.scrollIntoView({ block: "nearest" });
+  }, [isSearching]);
+
+  const lastIndexByComponent = new Map<string, number>();
+  messages.forEach((m, i) => {
+    if (m.directive && COLLAPSIBLE.has(m.directive.component)) lastIndexByComponent.set(m.directive.component, i);
+  });
+
+  const toggle = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  if (messages.length === 0 && !isSearching) {
+    return starters?.length ? (
+      <div className="rounded-3xl bg-[var(--color-primary-soft)] px-6 py-10 text-center sm:py-14">
+        <h1 className="text-2xl font-semibold sm:text-3xl">What are you shopping for?</h1>
+        <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-muted)]">
+          Describe it in your own words, including budget and use. The agent searches the whole marketplace.
+        </p>
+        <div className="mt-5 flex flex-wrap justify-center gap-2">
+          {starters.map((s) => (
+            <button key={s} type="button" onClick={() => onSend(s)} className="h-10 rounded-full border border-[var(--color-border)] bg-white px-4 text-sm hover:border-[var(--color-primary)]">
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={isSearching}
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-[var(--color-muted)] hover:bg-slate-100 hover:text-[var(--color-foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Trash2 size={14} /> Clear conversation
+        </button>
+      </div>
+
+      {/* History is locked while the agent is answering. */}
+      <div
+        {...inertProps(isSearching)}
+        aria-busy={isSearching}
+        className={"space-y-5 transition-opacity duration-200 " + (isSearching ? "opacity-70" : "")}
+      >
+        {messages.map((msg, i) => {
+          const d = msg.directive;
+          const superseded =
+            d && COLLAPSIBLE.has(d.component) && lastIndexByComponent.get(d.component)! > i && !expanded.has(msg.id);
+          return (
+            <div key={msg.id} id={`msg-${msg.id}`} className="scroll-mt-20">
+              {msg.role === "user" ? (
+                <div className="flex justify-end">
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--color-primary)] px-4 py-2.5 text-sm text-white">
+                    {msg.content}
+                  </div>
+                </div>
+              ) : d ? (
+                superseded ? (
+                  <button
+                    type="button"
+                    onClick={() => toggle(msg.id)}
+                    className="flex h-11 w-full items-center justify-between rounded-xl border border-[var(--color-border)] bg-white px-4 text-sm text-[var(--color-muted)] hover:border-[var(--color-primary)]"
+                  >
+                    {summarize(d)}
+                    <span className="flex items-center gap-1 font-medium text-[var(--color-primary)]">
+                      Show <ChevronDown size={14} />
+                    </span>
+                  </button>
+                ) : (
+                  <div className="mp-reveal w-full">
+                    {renderDirective?.(d, { id: msg.id, isLatest: lastIndexByComponent.get(d.component) === i })}
+                  </div>
+                )
+              ) : (
+                <AgentBubble>{msg.content}</AgentBubble>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* The reply currently being written. Results arrive only after it is complete. */}
+      {isSearching && (
+        <div ref={liveRef} className="space-y-3">
+          <AgentBubble live={!!statusText}>{statusText ? statusText : <TypingDots />}</AgentBubble>
+          {pendingKinds.length > 0 && <ResultsPlaceholder kinds={pendingKinds} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Sticky command bar. Typing stays possible while the agent answers; sending waits until it is done. */
+export function AgentComposer({
+  onSend,
+  isSearching = false,
+  placeholder = "Search products or ask the agent…",
+}: {
+  onSend: (message: string) => void;
+  isSearching?: boolean;
+  placeholder?: string;
+}) {
+  const [draft, setDraft] = useState("");
+
+  const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = draft.trim();
     if (!trimmed || isSearching) return;
@@ -63,95 +241,37 @@ export function AgentChatPanel({
     setDraft("");
   };
 
-  const renderMessage = (msg: ChatMessage) => {
-    const isUser = msg.role === "user";
-    return (
-      <div
-        key={msg.id}
-        className={`flex gap-1.5 ${isUser ? "flex-row-reverse" : "flex-row"}`}
-      >
-        <div
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-            isUser
-              ? "bg-[var(--color-primary)] text-white"
-              : "bg-[var(--color-muted)]/20 text-[var(--color-muted)]"
-          }`}
-        >
-          {isUser ? <User size={12} /> : <Bot size={12} />}
-        </div>
-        <div
-          className={` rounded-lg px-2 py-1.5 text-xs ${
-            isUser
-              ? "bg-[var(--color-primary)] text-white"
-              : "bg-[var(--color-surface)] text-[var(--color-foreground)]"
-          }`}
-        >
-          {msg.content && <div>{msg.content}</div>}
-          {msg.directive && renderDirective && (
-            <div className="mt-1 w-full max-w-full">
-              {renderDirective(msg.directive)}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const hasMessages = messages.length > 0;
-
   return (
-    <div className="flex flex-col gap-1">
-      {hasMessages ? (
-        <div className="flex flex-col gap-1">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onClear}
-              disabled={isSearching}
-              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-foreground)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              title="Clear conversation and search results"
-            >
-              <Trash2 size={13} />
-              Clear
-            </button>
-          </div>
-          {messages.map(renderMessage)}
-          {isSearching && (
-            <div className="flex gap-1.5">
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--color-muted)]/20 text-[var(--color-muted)]">
-                <Bot size={12} />
-              </div>
-              <div className="max-w-[75%] rounded-lg px-2 py-1.5 text-xs bg-[var(--color-surface)] text-[var(--color-foreground)]">
-                <div className="text-[var(--color-muted)]">
-                  {statusText || "Thinking..."}
-                </div>
-              </div>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-      ) : (
-        <p className="text-center text-xs text-[var(--color-muted)]"></p>
-      )}
-
-      <form onSubmit={handleSubmit} className="flex gap-1.5">
+    <form onSubmit={submit} className="sticky bottom-4 z-30 mx-auto mt-8 w-full max-w-3xl">
+      <div className="flex items-center gap-2 rounded-2xl border border-[var(--color-border)] bg-white p-2 pl-4 shadow-[var(--shadow-lg)] focus-within:ring-2 focus-within:ring-[var(--color-primary)]">
+        <Sparkles size={18} className="shrink-0 text-[var(--color-agent)]" />
         <input
-          ref={inputRef}
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder={inputPlaceholder}
-          disabled={isSearching}
-          className="flex-1 rounded-lg border border-[var(--color-border)] px-2 py-1.5 text-xs text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] outline-none disabled:opacity-50"
+          placeholder={isSearching ? "The agent is responding…" : placeholder}
+          aria-label="Ask the shopping agent"
+          className="min-w-0 flex-1 bg-transparent py-2 text-base outline-none placeholder:text-[var(--color-muted)]"
         />
         <button
           type="submit"
           disabled={!draft.trim() || isSearching}
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--color-primary)] text-white hover:bg-[var(--color-primary-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="inline-flex h-10 items-center gap-2 rounded-xl bg-[var(--color-primary)] px-4 text-sm font-semibold text-white hover:bg-[var(--color-primary-hover)] disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Send size={14} />
+          {isSearching ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+          <span className="hidden sm:inline">{isSearching ? "Responding" : "Ask"}</span>
         </button>
-      </form>
+      </div>
+    </form>
+  );
+}
+
+/** Backwards-compatible all-in-one panel. */
+export function AgentChatPanel(props: AgentTranscriptProps & { inputPlaceholder?: string }) {
+  return (
+    <div>
+      <AgentTranscript {...props} />
+      <AgentComposer onSend={props.onSend} isSearching={props.isSearching} placeholder={props.inputPlaceholder} />
     </div>
   );
 }
