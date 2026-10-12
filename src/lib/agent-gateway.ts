@@ -87,15 +87,22 @@ export class AgentGatewayClient {
     }
   }
 
-  /** Send a user message; resolves when the turn's event stream completes. */
+    /** Send a user message; resolves when the turn's event stream completes. */
   async sendMessage(
     message: string,
     confirmedToken?: string,
   ): Promise<void> {
     if (!this.ready) {
       this.handlers.onError?.("Gateway not connected");
+      this.handlers.onEnd?.();
       return;
     }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+      this.handlers.onError?.("Request timed out after 60 seconds");
+      this.handlers.onEnd?.();
+    }, 60_000);
     try {
       const res = await fetch(this.baseUrl + "/sse", {
         method: "POST",
@@ -106,14 +113,21 @@ export class AgentGatewayClient {
           confirmed_token: confirmedToken ?? undefined,
           user_token: this.getAuthToken() ?? undefined,
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok || !res.body) {
         this.handlers.onError?.("Gateway unreachable (" + res.status + ")");
         this.handlers.onEnd?.();
         return;
       }
       await this.consumeStream(res);
-    } catch {
+    } catch (err: unknown) {
+      clearTimeout(timeoutId);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // Already handled by the timeout handler above.
+        return;
+      }
       this.handlers.onError?.("Failed to reach agent gateway");
       this.handlers.onEnd?.();
     }

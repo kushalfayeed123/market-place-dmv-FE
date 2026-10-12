@@ -287,10 +287,18 @@ function RenderDirective({
         onCancel={() => onAction?.("cancel")}
             />
     );
-  }
+    }
   if (directive.component === "SignInPrompt") {
     const auth = props as unknown as ComponentProps<typeof SignInPrompt>;
-    return <SignInPrompt {...auth} />;
+    return (
+      <SignInPrompt
+        {...auth}
+        onSignIn={() => {
+          onAction?.("sign_in");
+          window.location.href = "/auth";
+        }}
+      />
+    );
   }
   if (directive.component === "ErrorMessage") {
     const err = props as unknown as ComponentProps<typeof ErrorMessage>;

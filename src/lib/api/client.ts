@@ -392,6 +392,15 @@ export const apiClient = {
       idempotent: true,
     });
   },
+  updateProductVariant(
+    productId: string,
+    variantId: string,
+    patch: Partial<ProductVariantCreate>,
+  ) {
+    return raw<ProductVariant>("PATCH", `/catalog/products/${productId}/variants/${variantId}`, {
+      body: patch,
+    });
+  },
   listProductVariants(productId: string) {
     return raw<ProductVariant[]>("GET", `/catalog/products/${productId}/variants`);
   },

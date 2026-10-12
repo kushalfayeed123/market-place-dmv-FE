@@ -1,4 +1,4 @@
-import type { UiDirective } from "@/types/components";
+import type { UiDirective, ComponentName } from "@/types/components";
 
 type Props = Record<string, unknown>;
 
@@ -17,7 +17,7 @@ function itemCount(d: UiDirective): number {
   return raw.length;
 }
 
-const KEEP_LAST = ["CartSummary", "OrderList", "MerchantBalanceCard", "LedgerTable"];
+const KEEP_LAST: ComponentName[] = ["CartSummary", "OrderList", "MerchantBalanceCard", "LedgerTable"];
 
 /**
  * Clean up the directives collected during ONE agent turn before they are shown.
