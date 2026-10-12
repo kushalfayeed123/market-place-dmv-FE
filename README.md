@@ -40,7 +40,7 @@ src/
 │   │                      Idempotency-Key on financial mutations, 429 backoff
 │   └── agent-gateway.ts   Agent Gateway SSE client (POST /sse per turn)
 ├── types/components.ts    UiDirective envelope + ComponentName allowlist
-└── env.ts                 Zod-validated NEXT_PUBLIC_* config (fails loudly)
+└── env.ts                 Zod-validated  config (fails loudly)
 ```
 
 ## Open decisions (dev plan §12) — resolved defaults
