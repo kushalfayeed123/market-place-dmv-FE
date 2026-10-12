@@ -186,5 +186,5 @@ export class AgentGatewayClient {
 }
 
 export const agentGateway = new AgentGatewayClient(
-  process.env.AGENT_GATEWAY_URL ?? "http://localhost:8001",
+  process.env.NEXT_PUBLIC_AGENT_GATEWAY_URL ?? "http://localhost:8001",
 );

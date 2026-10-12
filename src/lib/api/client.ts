@@ -9,7 +9,7 @@ import { env } from "@/env";
  *  - Rate-limit (429) backoff with Retry-After
  */
 
-const API_BASE = env.API_BASE_URL.replace(/\/$/, "");
+const API_BASE = env.NEXT_PUBLIC_API_BASE_URL.replace(/\/$/, "");
 const API_PREFIX = "/api/v1";
 
 export class ApiError extends Error {
