@@ -23,6 +23,8 @@ import { KBResultList, type KBSearchResult } from "./components/catalog/KBResult
 import { CartSummary } from "./components/cart/CartSummary";
 import { OrderList } from "./components/orders/OrderList";
 import { OrderConfirmation } from "./components/orders/OrderConfirmation";
+import { PaymentCapturePanel } from "./components/orders/PaymentCapturePanel";
+import type { PaymentCapturePanelProps } from "./components/orders/PaymentCapturePanel";
 import { MerchantBalanceCard } from "./components/merchant/MerchantBalanceCard";
 import { LedgerTable } from "./components/merchant/LedgerTable";
 import { FulfillmentTracker } from "./components/fulfillment/FulfillmentTracker";
@@ -241,6 +243,35 @@ function RenderDirective({
   if (directive.component === "OrderConfirmation") {
     return <OrderConfirmation order={props.order as Order} />;
   }
+  if (directive.component === "PaymentCapturePanel") {
+    const p = props as Record<string, unknown>;
+    return (
+      <PaymentCapturePanel
+        order_id={String(p.order_id ?? "")}
+        order_number={String(p.order_number ?? "")}
+        status={String(p.status ?? "pending")}
+        total={(p.total ?? p.amount) as { amount: number; currency: string } | undefined}
+        item_count={p.item_count as number | undefined}
+        payment_required={p.payment_required as boolean | undefined}
+        message={p.message as string | undefined}
+        payment={
+          "id" in p
+            ? ({
+                id: p.id,
+                status: p.status,
+                amount: p.amount,
+                provider: p.provider,
+                provider_reference: p.provider_reference,
+                payment_url: p.payment_url as string | undefined,
+                created_at: p.created_at,
+                updated_at: p.updated_at,
+              } as PaymentCapturePanelProps["payment"])
+            : undefined
+        }
+        onPay={() => onAction?.("process_payment", { order_id: String(p.order_id ?? "") })}
+      />
+    );
+  }
   if (directive.component === "FulfillmentTracker") {
     return (
       <FulfillmentTracker
@@ -272,7 +303,7 @@ function RenderDirective({
             />
     );
   }
-  if (directive.component === "ConfirmationDialog") {
+    if (directive.component === "ConfirmationDialog") {
     const cprops = props as ComponentProps<typeof ConfirmationDialog> & {
       confirmed_token?: string;
     };
@@ -281,9 +312,10 @@ function RenderDirective({
         title={cprops.title}
         message={cprops.message}
         tool_name={cprops.tool_name}
-        onConfirm={() =>
-          onAction?.("confirm", cprops.confirmed_token ?? cprops.tool_name)
-        }
+        onConfirm={() => {
+          const token = cprops.confirmed_token ?? crypto.randomUUID();
+          onAction?.("confirm", token);
+        }}
         onCancel={() => onAction?.("cancel")}
             />
     );
@@ -426,9 +458,18 @@ export default function App() {
     heldRef.current = [];
     errorRef.current = null;
 
-    const batch: Array<Partial<CanvasMessage>> = [];
-    if (text) batch.push({ content: text });
-    for (const d of directives) {
+        const batch: Array<Partial<CanvasMessage>> = [];
+    // Combine text + first directive into one message so the agent's prose
+    // flows naturally into the UI widget (no visual "jump" between separate
+    // bubbles).  Additional directives each get their own message.
+    const firstDirective = directives[0];
+    const restDirectives = directives.slice(1);
+    if (text) {
+      batch.push(firstDirective ? { content: text, directive: firstDirective } : { content: text });
+    } else if (firstDirective) {
+      batch.push({ directive: firstDirective });
+    }
+    for (const d of restDirectives) {
       batch.push({ directive: d });
       if (d.component === "CartSummary") {
         const n = Number((d.props as Record<string, unknown>).item_count);
@@ -634,6 +675,13 @@ export default function App() {
       scrollToResults();
     } else if (action === "checkout") {
       sendToAgent("checkout please");
+    } else if (action === "process_payment") {
+      const d = data as { order_id: string; provider?: string };
+      sendToAgent(
+        d.provider
+          ? `Process payment for order ${d.order_id} using ${d.provider}`
+          : `Process payment for order ${d.order_id}`,
+      );
     } else if (action === "track_order") {
       // directive already rendered in chat
     } else if (action === "confirm") {

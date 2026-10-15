@@ -324,6 +324,28 @@ export interface LedgerEntryResponse {
   created_by: string;
 }
 
+export interface PayoutAccountStatus {
+  merchant_id: string;
+  has_payout_account: boolean;
+  provider?: string | null;
+  currency?: string | null;
+  is_active: boolean;
+  created_at?: string | null;
+}
+
+export interface PayoutAccountCreate {
+  provider: string;
+  currency: string;
+  external_ref: string;
+  account_last4?: string | null;
+  bank_name?: string | null;
+  account_holder_name?: string | null;
+  bank_code?: string | null;
+  routing_number?: string | null;
+  account_type?: string | null;
+  country?: string | null;
+}
+
 export const apiClient = {
   raw,
   async login(email: string, password: string) {
@@ -426,9 +448,15 @@ export const apiClient = {
   getOrders() {
     return raw<Order[]>("GET", "/orders/");
   },
-  checkout(items: Array<{ variant_id: string; quantity: number }>) {
+  checkout(items: Array<{ variant_id: string; quantity: number }>, opts?: {
+    delivery_address?: Record<string, unknown>;
+    fulfillment_option?: "delivery" | "pickup";
+  }) {
+    const body: Record<string, unknown> = { items };
+    if (opts?.delivery_address) body.delivery_address = opts.delivery_address;
+    if (opts?.fulfillment_option) body.fulfillment_option = opts.fulfillment_option;
     return raw<Record<string, unknown>>("POST", "/orders/checkout", {
-      body: { items },
+      body,
       idempotent: true,
     });
   },
@@ -437,6 +465,24 @@ export const apiClient = {
       body: { order_id: orderId, provider },
       idempotent: true,
     });
+  },
+
+  /// GET /payments/methods — list available payment providers.
+  /// Providers that are not yet implemented appear with implemented=false
+  /// so the frontend can render them as disabled.
+  getPaymentMethods(currency?: string) {
+    const q = new URLSearchParams();
+    if (currency) q.set("currency", currency);
+    const qs = q.toString();
+    return raw<
+      Array<{
+        key: string;
+        name: string;
+        implemented: boolean;
+        supported_currencies: string[];
+        disabled_reason?: string | null;
+      }>
+    >("GET", qs ? `/payments/methods?${qs}` : "/payments/methods");
   },
 
   // ── Merchant dashboard endpoints ──
@@ -472,6 +518,20 @@ export const apiClient = {
     if (opts.skip !== undefined) q.set("skip", String(opts.skip));
     if (opts.limit !== undefined) q.set("limit", String(opts.limit));
     return raw<LedgerEntryResponse[]>("GET", `/ledger/entries?${q.toString()}`);
+  },
+
+  /// GET /merchants/{merchant_id}/payout-account-status — check if merchant
+  /// has an active payout account for receiving funds.
+  getPayoutAccountStatus(merchantId: string) {
+    return raw<PayoutAccountStatus>("GET", `/merchants/${merchantId}/payout-account-status`);
+  },
+
+  /// POST /merchants/{merchant_id}/payout-accounts — create a payout account.
+  createPayoutAccount(merchantId: string, payload: PayoutAccountCreate) {
+    return raw<Record<string, unknown>>("POST", `/merchants/${merchantId}/payout-accounts`, {
+      body: payload,
+      idempotent: true,
+    });
   },
 };
 

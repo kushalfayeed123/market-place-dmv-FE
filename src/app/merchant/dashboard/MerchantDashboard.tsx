@@ -8,6 +8,7 @@ import type { LedgerEntry } from "@/components/merchant/LedgerTable";
 import { MerchantRouteGuard } from "@/components/merchant/MerchantRouteGuard";
 import { MerchantBalanceCard } from "@/components/merchant/MerchantBalanceCard";
 import { MerchantSetupForm } from "@/components/merchant/MerchantSetupForm";
+import { PayoutSetupForm } from "@/components/merchant/PayoutSetupForm";
 import { LedgerTable } from "@/components/merchant/LedgerTable";
 import { MerchantShell } from "@/components/merchant/MerchantShell";
 import { ResourceSection } from "@/components/merchant/ResourceSection";
@@ -73,21 +74,31 @@ function MerchantDashboardContent() {
   const [attention, setAttention] = useState<Attention | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [needsSetup, setNeedsSetup] = useState(false);
+    const [needsSetup, setNeedsSetup] = useState(false);
+  const [needsPayout, setNeedsPayout] = useState(false);
 
   useEffect(() => { if (user?.id) loadData(); }, [user?.id]);
   useEffect(() => { window.addEventListener("merchant:refresh", loadData); return () => window.removeEventListener("merchant:refresh", loadData); });
 
+  function clearPayoutGate() {
+    setNeedsPayout(false);
+  }
+
   async function loadData() {
     if (!user?.id) return;
-    setLoading(true); setError(null); setNeedsSetup(false);
+    setLoading(true); setError(null); setNeedsSetup(false); setNeedsPayout(false);
     try {
       const m = await apiClient.getMyMerchant(user.id); setMerchant(m);
-      const [b, raw, att] = await Promise.all([
+      const [b, raw, att, payoutStatus] = await Promise.all([
         apiClient.getMerchantBalance(m.id), apiClient.getLedgerEntries(m.id),
-        mreq<Attention>("GET", `/merchants/${m.id}/attention`).catch(() => null), // non-blocking
+        mreq<Attention>("GET", `/merchants/${m.id}/attention`).catch(() => null),
+        apiClient.getPayoutAccountStatus(m.id).catch(() => null),
       ]);
       setBalance(b); setEntries(raw.map(toLedgerEntry)); setAttention(att);
+      // Show the payout-setup gate if the merchant has no active payout account.
+      if (payoutStatus && !payoutStatus.has_payout_account) {
+        setNeedsPayout(true);
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) setNeedsSetup(true);
       else setError(e instanceof Error ? e.message : "Failed to load dashboard data.");
@@ -95,8 +106,23 @@ function MerchantDashboardContent() {
   }
 
   if (loading && !merchant) return <div className="flex items-center gap-2 text-[var(--color-muted)]"><RefreshCw size={14} className="animate-spin" /><span>Loading dashboard…</span></div>;
+  // Store onboarding gate — merchant record does not exist yet.
   if (needsSetup) return <MerchantSetupForm onSuccess={() => { setNeedsSetup(false); loadData(); }} />;
   if (!merchant) return <div role="alert" className="rounded-lg bg-[var(--color-danger-bg)] px-4 py-3 text-sm text-[var(--color-danger-fg)]">{error}</div>;
+  // Payout-account gate — merchant has no active payout account yet.
+  if (needsPayout)
+    return (
+      <MerchantShell merchantId={merchant.id} businessName={merchant.business_name}
+        section="overview" kycStatus={merchant.kyc_status} onLogout={() => logout().catch(() => {})}>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-[var(--color-foreground)]">Payout account required</h1>
+          <p className="text-sm text-[var(--color-muted)]">
+            You need to set up a payout account before you can receive funds from sales.
+          </p>
+        </div>
+        <PayoutSetupForm merchantId={merchant.id} onSuccess={clearPayoutGate} />
+      </MerchantShell>
+    );
 
   const cfg = SECTIONS.find(s => s.key === section);
   return (

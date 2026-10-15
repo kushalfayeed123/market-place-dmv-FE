@@ -14,7 +14,7 @@ export interface ChatMessage {
 }
 
 /** Directive types that collapse once a newer one of the same type arrives. */
-const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary"]);
+const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary", "PaymentCapturePanel"]);
 
 /** `inert` blocks mouse, keyboard and assistive-tech interaction (React 18 has no typed prop for it). */
 const inertProps = (on: boolean) => (on ? ({ inert: "" } as Record<string, string>) : {});
@@ -29,6 +29,11 @@ function summarize(d: UiDirective): string {
   if (d.component === "CartSummary") {
     const n = Number(p.item_count);
     return `Earlier cart${Number.isFinite(n) ? ` · ${n} ${n === 1 ? "item" : "items"}` : ""}`;
+  }
+  if (d.component === "PaymentCapturePanel") {
+    const payment = p.payment as { status?: string } | undefined;
+    const status = String(p.status ?? payment?.status ?? "unknown");
+    return `Payment ${status === "success" || status === "paid" ? "complete" : `• ${status}`}`;
   }
   return `Viewed ${typeof p.name === "string" ? p.name : "a product"}`;
 }
@@ -71,8 +76,11 @@ function ResultsPlaceholder({ kinds }: { kinds: string[] }) {
   if (kinds.some((k) => k === "ProductGrid" || k === "ProductCard" || k === "CategoryList")) {
     return <ProductGridSkeleton count={5} />;
   }
-  if (kinds.includes("ProductDetail")) {
+    if (kinds.includes("ProductDetail")) {
     return <div aria-hidden="true" className="h-72 animate-pulse rounded-2xl bg-slate-100" />;
+  }
+  if (kinds.includes("PaymentCapturePanel")) {
+    return <div aria-hidden="true" className="h-40 animate-pulse rounded-2xl bg-slate-100 w-full max-w-md" />;
   }
   return <div aria-hidden="true" className="h-24 animate-pulse rounded-2xl bg-slate-100" />;
 }
@@ -185,25 +193,27 @@ export function AgentTranscript({
                     {msg.content}
                   </div>
                 </div>
-              ) : d ? (
-                superseded ? (
-                  <button
-                    type="button"
-                    onClick={() => toggle(msg.id)}
-                    className="flex h-11 w-full items-center justify-between rounded-xl border border-[var(--color-border)] bg-white px-4 text-sm text-[var(--color-muted)] hover:border-[var(--color-primary)]"
-                  >
-                    {summarize(d)}
-                    <span className="flex items-center gap-1 font-medium text-[var(--color-primary)]">
-                      Show <ChevronDown size={14} />
-                    </span>
-                  </button>
-                ) : (
-                  <div className="mp-reveal w-full">
-                    {renderDirective?.(d, { id: msg.id, isLatest: lastIndexByComponent.get(d.component) === i })}
-                  </div>
-                )
               ) : (
-                <AgentBubble>{msg.content}</AgentBubble>
+                <div className="space-y-3">
+                  {msg.content && <AgentBubble>{msg.content}</AgentBubble>}
+                  {d &&
+                    (superseded ? (
+                      <button
+                        type="button"
+                        onClick={() => toggle(msg.id)}
+                        className="flex h-11 w-full items-center justify-between rounded-xl border border-[var(--color-border)] bg-white px-4 text-sm text-[var(--color-muted)] hover:border-[var(--color-primary)]"
+                      >
+                        {summarize(d)}
+                        <span className="flex items-center gap-1 font-medium text-[var(--color-primary)]">
+                          Show <ChevronDown size={14} />
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="mp-reveal w-full">
+                        {renderDirective?.(d, { id: msg.id, isLatest: lastIndexByComponent.get(d.component) === i })}
+                      </div>
+                    ))}
+                </div>
               )}
             </div>
           );
