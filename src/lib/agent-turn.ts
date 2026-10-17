@@ -17,7 +17,7 @@ function itemCount(d: UiDirective): number {
   return raw.length;
 }
 
-const KEEP_LAST: ComponentName[] = ["CartSummary", "OrderList", "MerchantBalanceCard", "LedgerTable", "PaymentCapturePanel"];
+const KEEP_LAST: ComponentName[] = ["CartSummary", "OrderList", "MerchantBalanceCard", "LedgerTable"];
 
 /**
  * Clean up the directives collected during ONE agent turn before they are shown.

@@ -13,8 +13,7 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-/** Directive types that collapse once a newer one of the same type arrives. */
-const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary", "PaymentCapturePanel"]);
+const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary"]);
 
 /** `inert` blocks mouse, keyboard and assistive-tech interaction (React 18 has no typed prop for it). */
 const inertProps = (on: boolean) => (on ? ({ inert: "" } as Record<string, string>) : {});

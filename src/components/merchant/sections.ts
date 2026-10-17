@@ -22,10 +22,11 @@ export const SECTIONS: SectionConfig[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, hint: "Today at a glance" },
   { key: "orders", label: "Orders", icon: ShoppingBag, hint: "Fulfil and track customer orders",
     list: (m, q) => `/merchants/${m}/orders${qs(q)}`,
-        statuses: ["pending", "paid", "partially_fulfilled", "fulfilled", "cancelled", "refunded"],
+        statuses: ["pending", "paid", "partially_fulfilled", "fulfilled", "cancelled", "refunded", "awaiting_approval"],
     columns: [{ key: "number", label: "Order" }, { key: "customer_name", label: "Customer" }, { key: "created_at", label: "Placed", kind: "date" },
       { key: "total", label: "Total", kind: "money", align: "right" }, { key: "status", label: "Status", kind: "badge" }],
     actions: [
+      { label: "Confirm payment", method: "POST", path: r => `/orders/${r.id}/approve`, when: r => r.status === "awaiting_approval", confirm: "Confirm you have received payment for this order? This releases the payout to the merchant." },
       { label: "Accept", method: "POST", path: r => `/orders/${r.id}/accept`, when: r => r.status === "paid" },
             { label: "Mark shipped", method: "POST", path: r => `/orders/${r.id}/ship`, when: r => r.status === "partially_fulfilled" },
       { label: "Cancel & refund", method: "POST", path: r => `/orders/${r.id}/cancel`, when: r => ["paid", "partially_fulfilled"].includes(r.status), confirm: "Cancel this order and refund the buyer?", tone: "danger" },

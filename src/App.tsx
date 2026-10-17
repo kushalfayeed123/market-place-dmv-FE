@@ -247,10 +247,16 @@ function RenderDirective({
     const p = props as Record<string, unknown>;
     return (
       <PaymentCapturePanel
-        order_id={String(p.order_id ?? "")}
+        order_id={String(p.order_id ?? p.id ?? "")}
         order_number={String(p.order_number ?? "")}
         status={String(p.status ?? "pending")}
-        total={(p.total ?? p.amount) as { amount: number; currency: string } | undefined}
+        total={
+          typeof p.total_amount === "number"
+            ? { amount: p.total_amount, currency: String(p.currency ?? "NGN") }
+            : typeof p.amount === "number"
+              ? { amount: p.amount, currency: String(p.currency ?? "NGN") }
+              : undefined
+        }
         item_count={p.item_count as number | undefined}
         payment_required={p.payment_required as boolean | undefined}
         message={p.message as string | undefined}
@@ -262,13 +268,15 @@ function RenderDirective({
                 amount: p.amount,
                 provider: p.provider,
                 provider_reference: p.provider_reference,
+                payment_method: p.payment_method ?? (p.provider === "pay_on_delivery" ? "pay_on_delivery" : undefined),
                 payment_url: p.payment_url as string | undefined,
                 created_at: p.created_at,
                 updated_at: p.updated_at,
               } as PaymentCapturePanelProps["payment"])
             : undefined
         }
-        onPay={() => onAction?.("process_payment", { order_id: String(p.order_id ?? "") })}
+        onPay={() => onAction?.("process_payment", { order_id: String(p.order_id ?? p.id ?? "") })}
+        onPayOnDelivery={() => onAction?.("process_payment", { order_id: String(p.order_id ?? p.id ?? ""), provider: "pay_on_delivery" })}
       />
     );
   }
@@ -377,6 +385,13 @@ export default function App() {
   // Keeps every user message + agent reply (text and directives) so the
   // conversation stays visible while products are browsed.
   const [chatMessages, setChatMessages] = useState<CanvasMessage[]>([]);
+  // Ref mirror of chatMessages so that async callbacks (e.g. finishTurn
+  // inside the SSE handler) always see the latest transcript even though
+  // the handler closure is created once on mount.
+  const chatMessagesRef = useRef<CanvasMessage[]>([]);
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
   // Monotonic id for transcript entries (persists across turns within a session).
   const chatIdRef = useRef(0);
   function pushChat(msg: Partial<CanvasMessage>) {
@@ -458,12 +473,30 @@ export default function App() {
     heldRef.current = [];
     errorRef.current = null;
 
-        const batch: Array<Partial<CanvasMessage>> = [];
+    // Find the last CartSummary already displayed in the transcript.
+    const lastCartMessage = [...chatMessagesRef.current]
+      .reverse()
+      .find((m) => m.directive?.component === "CartSummary");
+    const lastKey = lastCartMessage ? cartKey(lastCartMessage.directive as UiDirective) : null;
+
+    // Drop CartSummary directives whose content is identical to the one already shown.
+    const freshDirectives = directives.filter((d) => {
+      if (d.component === "CartSummary" && lastKey) {
+        const newKey = cartKey(d);
+        // A highlight_product_id prop means the shopper just added an item - that
+        // is a *visual* change, so we still want to surface the cart this turn.
+        const hasHighlight = Boolean((d.props as Record<string, unknown>)?.highlight_product_id);
+        if (newKey === lastKey && !hasHighlight) return false;
+      }
+      return true;
+    });
+
+    let batch: Array<Partial<CanvasMessage>> = [];
     // Combine text + first directive into one message so the agent's prose
     // flows naturally into the UI widget (no visual "jump" between separate
     // bubbles).  Additional directives each get their own message.
-    const firstDirective = directives[0];
-    const restDirectives = directives.slice(1);
+    const firstDirective = freshDirectives[0];
+    const restDirectives = freshDirectives.slice(1);
     if (text) {
       batch.push(firstDirective ? { content: text, directive: firstDirective } : { content: text });
     } else if (firstDirective) {
@@ -477,6 +510,8 @@ export default function App() {
         settleCart("added");
       }
     }
+    // If every CartSummary was deduped but we still have text, keep the text.
+    // If everything was deduped with no text, don't add a blank message.
     if (error && error !== text) batch.push({ content: error });
     if (!batch.length) batch.push({ content: "I didn't get a response. Please try again." });
 
@@ -598,6 +633,18 @@ export default function App() {
         2500,
       );
     }
+  }
+
+  /** Build a stable key for a CartSummary directive so identical carts aren't re-rendered. */
+  function cartKey(d: UiDirective): string | null {
+    const p = d.props as Record<string, unknown>;
+    const items = (p.items as Array<Record<string, unknown>> | undefined) ?? [];
+    const lines = items
+      .map((i) => `${i.variant_id ?? ""}:${i.quantity ?? 0}`)
+      .sort()
+      .join(",");
+    const subtotal = (p.subtotal as Record<string, unknown> | undefined) ?? {};
+    return [String(p.item_count ?? items.length), lines, String(subtotal.amount ?? 0), String(subtotal.currency ?? "")].join("|");
   }
 
   function handleViewProduct(p: Product) {
