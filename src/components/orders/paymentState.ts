@@ -38,8 +38,10 @@ export type PaymentCaptureState = {
   awaitingMerchant: boolean;
   /** A redirect URL is available -> render the "Complete Payment" button. */
   showComplete: boolean;
-  /** No payment yet and checkout is unpaid -> render the "Pay Now" button. */
+  /** No payment yet and checkout is unpaid -> render the "Pay Now" / "Pay on Delivery" buttons. */
   showPayNow: boolean;
+  /** Payment method chosen by the user: "paystack" | "pay_on_delivery" | undefined. */
+  paymentMethod: string | undefined;
   header: string;
 };
 
@@ -77,6 +79,7 @@ export function resolvePaymentState(
     awaitingConfirmation,
     awaitingMerchant,
     showComplete: !awaitingConfirmation && hasRedirectUrl,
+    paymentMethod: payment?.provider ?? payment?.payment_method,
     showPayNow:
       !isPaid &&
       !awaitingConfirmation &&

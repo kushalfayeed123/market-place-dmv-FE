@@ -37,3 +37,43 @@ export interface ProductDetailExtras {
 
 export type ProductDetailDirectiveProps = Product &
   ProductDetailExtras & { related?: unknown[] };
+
+/** Payment method selection directive — rendered when asking the buyer how to pay. */
+export interface PaymentSelectionDirectiveProps {
+  /** Available payment methods. */
+  methods: Array<{
+    key: "paystack" | "pay_on_delivery";
+    label: string;
+    description: string;
+  }>;
+  /** Currently selected method key. */
+  selected?: string;
+  /** Fired when the buyer picks a method. */
+  onSelect: (method: string) => void;
+  /**
+   * Order the selection applies to. When present the frontend can render the
+   * "Proceed to Paystack" / "Confirm Pay on Delivery" CTAs and dispatch
+   * process_payment for this order; when absent only method selection renders.
+   */
+  order_id?: string;
+}
+
+/** Order success / close-out directive — rendered after purchase completes. */
+export interface OrderSuccessDirectiveProps {
+  order: {
+    id: string;
+    order_number: string;
+    status: string;
+    total: { amount: number; currency: string };
+    merchant_name: string;
+    items?: {
+      product_name: string;
+      quantity: number;
+      unit_price: { amount: number; currency: string };
+    }[];
+  };
+  /** Shown when true; clicking closes the checkout session. */
+  onClose: () => void;
+  /** Whether to show the fulfillment tracker. */
+  showTracker?: boolean;
+}

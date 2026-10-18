@@ -25,6 +25,8 @@ import { OrderList } from "./components/orders/OrderList";
 import { OrderConfirmation } from "./components/orders/OrderConfirmation";
 import { PaymentCapturePanel } from "./components/orders/PaymentCapturePanel";
 import type { PaymentCapturePanelProps } from "./components/orders/PaymentCapturePanel";
+import { PaymentSelection } from "./components/orders/PaymentSelection";
+import { OrderSuccess } from "./components/orders/OrderSuccess";
 import { MerchantBalanceCard } from "./components/merchant/MerchantBalanceCard";
 import { LedgerTable } from "./components/merchant/LedgerTable";
 import { FulfillmentTracker } from "./components/fulfillment/FulfillmentTracker";
@@ -38,6 +40,8 @@ import type {
   CartState,
   ProductGridDirectiveProps,
   ProductDetailDirectiveProps,
+  PaymentSelectionDirectiveProps,
+  OrderSuccessDirectiveProps,
 } from "./components/catalog/directives";
 import type { Order } from "./components/orders/OrderList";
 import type { CartSummaryProps, CartChange } from "./components/cart/CartSummary";
@@ -280,6 +284,48 @@ function RenderDirective({
       />
     );
   }
+  if (directive.component === "PaymentSelection") {
+    const p = props as unknown as PaymentSelectionDirectiveProps & {
+      onSelect?: (m: string) => void;
+      order_id?: string;
+    };
+    // Pay CTAs only render when the directive carries the order to pay for;
+    // they reuse the same process_payment action as PaymentCapturePanel.
+    const orderId = typeof p.order_id === "string" ? p.order_id : undefined;
+    return (
+      <PaymentSelection
+        methods={Array.isArray(p.methods) ? p.methods : []}
+        selected={p.selected ?? null}
+        onSelect={(m: string) => {
+          onAction?.("select_payment_method", m);
+          p.onSelect?.(m);
+        }}
+        onPayNow={
+          orderId
+            ? () => onAction?.("process_payment", { order_id: orderId })
+            : undefined
+        }
+        onPayOnDelivery={
+          orderId
+            ? () => onAction?.("process_payment", { order_id: orderId, provider: "pay_on_delivery" })
+            : undefined
+        }
+      />
+    );
+  }
+  if (directive.component === "OrderSuccess") {
+    const p = props as unknown as OrderSuccessDirectiveProps & { onClose?: () => void };
+    return (
+      <OrderSuccess
+        order={p.order as any}
+        onClose={() => {
+          onAction?.("close_order_success");
+          p.onClose?.();
+        }}
+        showTracker={p.showTracker ?? true}
+      />
+    );
+  }
   if (directive.component === "FulfillmentTracker") {
     return (
       <FulfillmentTracker
@@ -380,6 +426,14 @@ export default function App() {
   // Add-to-cart feedback per product id, and the latest known cart size.
   const [cartState, setCartState] = useState<CartState>({});
   const [cartCount, setCartCount] = useState<number | null>(null);
+
+  // -- Direct checkout / payment flow (works without the agent) --
+  const [checkoutPending, setCheckoutPending] = useState<{ order_id: string; order_number: string; status: string; total_amount: number; currency: string; payment_required: boolean; payment_url?: string; items?: any[] } | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<"paystack" | "pay_on_delivery" | null>(null);
+  const [paymentPaying, setPaymentPaying] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [orderSuccess, setOrderSuccess] = useState<{ id: string; order_number: string; status: string; total: { amount: number; currency: string }; merchant_name: string; items?: any[] } | null>(null);
+  const [confirmationDialog, setConfirmationDialog] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
 
   // -- Persistent agent chat transcript
   // Keeps every user message + agent reply (text and directives) so the
@@ -700,6 +754,69 @@ export default function App() {
       ?.scrollIntoView({ block: "start" });
   }
 
+  // ── Direct checkout (bypasses agent so buyer can complete offline) ──
+  async function handleDirectCheckout() {
+    if (!user?.id) return;
+    // Gather cart items from the latest CartSummary directive in the transcript
+    const lastCart = [...chatMessagesRef.current]
+      .reverse()
+      .find((m) => m.directive?.component === "CartSummary")?.directive;
+    const items = (lastCart?.props as Record<string, unknown> | undefined)?.items as
+      | Array<{ variant_id: string; quantity: number }>
+      | undefined;
+    if (!items || items.length === 0) {
+      setStatusText("Your cart is empty.");
+      return;
+    }
+    setCheckoutPending(null);
+    setStatusText("Checking out…");
+    try {
+      const resp = await apiClient.checkout(items);
+      setCheckoutPending({
+        order_id: String(resp.id),
+        order_number: String(resp.order_number),
+        status: String(resp.status),
+        total_amount: Number(resp.total_amount),
+        currency: String(resp.currency),
+        payment_required: Boolean(resp.payment_required),
+        payment_url: resp.payment_url as string | undefined,
+        items: items as any[],
+      });
+      setStatusText(null);
+    } catch (e: any) {
+      setStatusText(e?.message || "Checkout failed. Please try again.");
+    }
+  }
+
+  async function handleDirectPayment(provider: "paystack" | "pay_on_delivery") {
+    if (!checkoutPending || paymentPaying) return;
+    setPaymentPaying(true);
+    setPaymentError(null);
+    try {
+      const resp = await apiClient.processPayment(checkoutPending.order_id, provider);
+      setPaymentMethod(provider);
+      if (provider === "paystack" && resp.payment_url) {
+        // Open Paystack in a new tab; the stub-callback page will close itself on success
+        window.open(resp.payment_url as string, "_blank", "noopener,noreferrer");
+      }
+      // Transition to the success overlay immediately so the purchase closes
+      // out cleanly (Pay on Delivery is confirmed right away; Paystack redirects
+      // and the webhook finalises the order server-side).
+      setOrderSuccess({
+        id: checkoutPending.order_id,
+        order_number: checkoutPending.order_number,
+        status: provider === "paystack" ? "pending_payment" : "paid",
+        total: { amount: checkoutPending.total_amount, currency: checkoutPending.currency },
+        merchant_name: "Markto",
+      });
+      setStatusText(null);
+    } catch (e: any) {
+      setPaymentError(e?.message || "Payment failed. Please try again.");
+    } finally {
+      setPaymentPaying(false);
+    }
+  }
+
   function handleAction(action: string, data?: unknown) {
     if (busyRef.current && action !== "cancel") return; // locked while the agent responds
     if (action === "view_product") {
@@ -721,20 +838,36 @@ export default function App() {
     } else if (action === "back") {
       scrollToResults();
     } else if (action === "checkout") {
-      sendToAgent("checkout please");
+      // Always ask for confirmation via the ConfirmationDialog widget — never
+      // require the buyer to type "confirm". Confirmation triggers direct REST checkout.
+      setConfirmationDialog({
+        title: "Confirm checkout",
+        message: "Place this order and proceed to payment? You'll be able to choose how to pay on the next step.",
+        onConfirm: handleDirectCheckout,
+      });
     } else if (action === "process_payment") {
       const d = data as { order_id: string; provider?: string };
-      sendToAgent(
-        d.provider
-          ? `Process payment for order ${d.order_id} using ${d.provider}`
-          : `Process payment for order ${d.order_id}`,
-      );
+      const provider = (d?.provider ?? "paystack") as "paystack" | "pay_on_delivery";
+      handleDirectPayment(provider);
+    } else if (action === "select_payment_method") {
+      setPaymentMethod(data as "paystack" | "pay_on_delivery" | null);
+    } else if (action === "close_order_success") {
+      setOrderSuccess(null);
+      setCheckoutPending(null);
+      setPaymentMethod(null);
+      setPaymentError(null);
+      setStatusText(null);
     } else if (action === "track_order") {
       // directive already rendered in chat
     } else if (action === "confirm") {
-      sendToAgent("Confirmed", data as string | undefined);
+      // Confirmation token flow: the ConfirmationDialog passes a token here.
+      // For direct checkout, the dialog's onConfirm already called handleDirectCheckout.
+      // For agent actions, forward to the agent.
+      const token = data as string | undefined;
+      if (token) sendToAgent("Confirmed", token);
     } else if (action === "cancel") {
       setStatusText(null);
+      setConfirmationDialog(null);
     }
   }
 
@@ -881,6 +1014,126 @@ export default function App() {
           Marketing site
         </a>
       </footer>
+
+      {/* ── Direct checkout panel ──
+          Shown after a direct REST checkout succeeds and payment hasn't
+          completed yet. Lets the buyer pick Paystack or Pay on Delivery
+          without depending on the agent being online. */}
+      {checkoutPending && !orderSuccess && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-[var(--color-foreground)]">
+                Complete your order
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setCheckoutPending(null);
+                  setPaymentMethod(null);
+                  setPaymentError(null);
+                }}
+                aria-label="Close checkout"
+                className="rounded-lg p-1 text-[var(--color-muted)] hover:bg-slate-100"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <PaymentCapturePanel
+              order_id={checkoutPending.order_id}
+              order_number={checkoutPending.order_number}
+              status={checkoutPending.status}
+              total={{ amount: checkoutPending.total_amount, currency: checkoutPending.currency }}
+              payment_required={checkoutPending.payment_required}
+              payment={undefined}
+              onPay={() => handleDirectPayment(paymentMethod ?? "paystack")}
+              onPayOnDelivery={() => handleDirectPayment("pay_on_delivery")}
+            />
+
+            <PaymentSelection
+              methods={[
+                { key: "paystack", label: "Pay with Paystack", description: "Card, bank transfer, or USSD" },
+                { key: "pay_on_delivery", label: "Pay on Delivery", description: "Pay when your order arrives" },
+              ]}
+              selected={paymentMethod}
+              onSelect={(m) => setPaymentMethod(m as "paystack" | "pay_on_delivery")}
+              onPayNow={() => handleDirectPayment("paystack")}
+              onPayOnDelivery={() => handleDirectPayment("pay_on_delivery")}
+              loading={paymentPaying}
+              error={paymentError}
+            />
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => handleDirectPayment(paymentMethod ?? "paystack")}
+                disabled={paymentPaying}
+                className="flex-1 rounded-xl bg-[var(--color-primary)] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+              >
+                {paymentPaying ? "Processing payment…" : "Pay now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCheckoutPending(null);
+                  setPaymentMethod(null);
+                  setPaymentError(null);
+                }}
+                className="rounded-xl border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium text-[var(--color-foreground)] hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {statusText && (
+              <p className="text-center text-xs text-[var(--color-muted)]">{statusText}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Order success overlay ──
+          Shown once payment has been initiated/completed so the buyer
+          gets a clear confirmation with their order number and tracking. */}
+      {orderSuccess && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <OrderSuccess
+              order={orderSuccess as any}
+              onClose={() => {
+                setOrderSuccess(null);
+                setCheckoutPending(null);
+                setPaymentMethod(null);
+                setPaymentError(null);
+                setStatusText(null);
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* ── Confirmation dialog overlay ──
+          Used for checkout confirmation so the buyer never has to type
+          "confirm" into the chat. */}
+      {confirmationDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <ConfirmationDialog
+              title={confirmationDialog.title}
+              message={confirmationDialog.message}
+              onConfirm={() => {
+                confirmationDialog.onConfirm();
+                setConfirmationDialog(null);
+              }}
+              onCancel={() => setConfirmationDialog(null)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

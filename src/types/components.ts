@@ -16,6 +16,8 @@ export type ComponentName =
   | "OrderConfirmation"
   | "OrderList"
   | "OrderDetail"
+  | "OrderSuccess"
+  | "PaymentSelection"
   | "MerchantBalanceCard"
   | "LedgerTable"
   | "MerchantProfile"
