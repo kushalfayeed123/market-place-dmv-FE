@@ -125,6 +125,7 @@ function MerchantDashboardContent() {
     );
 
   const cfg = SECTIONS.find(s => s.key === section);
+  console.log(cfg)
   return (
         <MerchantShell merchantId={merchant.id} businessName={merchant.business_name} section={cfg ? section : "overview"} kycStatus={merchant.kyc_status} onLogout={() => logout().catch(() => {})}>
       {error && <div role="alert" className="mb-4 rounded-lg bg-[var(--color-danger-bg)] px-4 py-3 text-sm text-[var(--color-danger-fg)]">{error}</div>}

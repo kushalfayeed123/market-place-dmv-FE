@@ -31,6 +31,7 @@ export function OrderList({ orders, onTrack }: { orders: Order[]; onTrack?: (ord
       </div>
       <ul className="divide-y divide-[var(--color-border)]">
         {orders.map((order) => {
+          console.log("Rendering order:", order); // Debugging line to check the order object
           const s = statusConfig[order.status] ?? statusConfig["processing"];
           return (
             <li key={order.id} className="px-5 py-4 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition-colors">

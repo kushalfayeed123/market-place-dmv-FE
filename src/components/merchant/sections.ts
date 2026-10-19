@@ -15,8 +15,13 @@ export interface SectionConfig {
   statuses?: string[]; columns?: Column[]; actions?: RowAction[]; emptyText?: string;
   primary?: { label: string; href?: string };
 }
-const qs = (q: { search: string; status: string }) =>
-  `?${new URLSearchParams({ ...(q.search && { search: q.search }), ...(q.status && { status: q.status }) })}`;
+const qs = (q: { search: string; status: string }) => {
+  const params = new URLSearchParams();
+  if (q.search) params.set("search", q.search);
+  if (q.status) params.set("status", q.status);
+  const out = params.toString();
+  return out ? `?${out}` : "";
+};
 
 export const SECTIONS: SectionConfig[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, hint: "Today at a glance" },
@@ -26,9 +31,10 @@ export const SECTIONS: SectionConfig[] = [
     columns: [{ key: "number", label: "Order" }, { key: "customer_name", label: "Customer" }, { key: "created_at", label: "Placed", kind: "date" },
       { key: "total", label: "Total", kind: "money", align: "right" }, { key: "status", label: "Status", kind: "badge" }],
     actions: [
-      { label: "Confirm payment", method: "POST", path: r => `/orders/${r.id}/approve`, when: r => r.status === "awaiting_approval", confirm: "Confirm you have received payment for this order? This releases the payout to the merchant." },
+      { label: "Confirm payment", method: "POST", path: r => `/orders/${r.id}/approve`, when: r => ["pending", "awaiting_approval"].includes(r.status), confirm: "Confirm you have received payment for this order? This releases the payout to the merchant." },
       { label: "Accept", method: "POST", path: r => `/orders/${r.id}/accept`, when: r => r.status === "paid" },
-            { label: "Mark shipped", method: "POST", path: r => `/orders/${r.id}/ship`, when: r => r.status === "partially_fulfilled" },
+      { label: "Mark shipped", method: "POST", path: r => `/orders/${r.id}/ship`, when: r => r.status === "partially_fulfilled" },
+      { label: "Cancel order", method: "POST", path: r => `/orders/${r.id}/cancel`, when: r => r.status === "pending", confirm: "Cancel this unpaid order?", tone: "danger" },
       { label: "Cancel & refund", method: "POST", path: r => `/orders/${r.id}/cancel`, when: r => ["paid", "partially_fulfilled"].includes(r.status), confirm: "Cancel this order and refund the buyer?", tone: "danger" },
     ], emptyText: "No orders yet. They'll appear here as soon as a buyer pays." },
   { key: "products", label: "Products", icon: Package, hint: "Your catalogue and stock",
