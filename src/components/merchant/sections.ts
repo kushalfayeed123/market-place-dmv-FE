@@ -31,6 +31,7 @@ export const SECTIONS: SectionConfig[] = [
     columns: [{ key: "number", label: "Order" }, { key: "customer_name", label: "Customer" }, { key: "created_at", label: "Placed", kind: "date" },
       { key: "total", label: "Total", kind: "money", align: "right" }, { key: "status", label: "Status", kind: "badge" }],
     actions: [
+      { label: "View", href: r => `/merchant/orders/${r.id}` },
       { label: "Confirm payment", method: "POST", path: r => `/orders/${r.id}/approve`, when: r => ["pending", "awaiting_approval"].includes(r.status), confirm: "Confirm you have received payment for this order? This releases the payout to the merchant." },
       { label: "Accept", method: "POST", path: r => `/orders/${r.id}/accept`, when: r => r.status === "paid" },
       { label: "Mark shipped", method: "POST", path: r => `/orders/${r.id}/ship`, when: r => r.status === "partially_fulfilled" },

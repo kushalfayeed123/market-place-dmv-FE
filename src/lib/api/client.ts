@@ -267,6 +267,67 @@ export interface Order {
   items: Array<Record<string, unknown>>;
 }
 
+// ── Merchant order detail (mirrors Backend merchant_console schemas) ─────
+
+export interface MerchantOrderItemDetail {
+  id: string;
+  product_id: string;
+  product_title: string;
+  variant_id?: string | null;
+  variant_sku?: string | null;
+  image_url?: string | null;
+  quantity: number;
+  unit_price: number; // minor units
+  currency: string;
+  line_total: number; // minor units
+}
+
+export interface MerchantOrderBuyer {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface MerchantOrderPayment {
+  status?: string | null; // e.g. success | failed | pending_verification
+  provider?: string | null; // mode of payment: paystack | bank_transfer | cash
+  provider_reference?: string | null;
+  amount?: number | null; // minor units
+  currency?: string | null;
+}
+
+export interface MerchantOrderFulfillment {
+  id: string;
+  status: string;
+  type: string;
+  carrier?: string | null;
+  tracking_number?: string | null;
+  delivery_method?: string | null;
+  delivered_at?: string | null;
+}
+
+export interface MerchantOrderDetail {
+  id: string;
+  order_number: string;
+  status: string;
+  currency: string;
+  total_amount: number; // minor units — full order total
+  item_count: number;
+  created_at: string;
+  updated_at: string;
+  payment_status?: string | null;
+  fulfillment_status?: string | null;
+  fulfilled_at?: string | null;
+  fulfillment_summary?: string | null;
+  idempotency_key?: string | null;
+  buyer: MerchantOrderBuyer;
+  items: MerchantOrderItemDetail[];
+  payment?: MerchantOrderPayment | null;
+  fulfillments: MerchantOrderFulfillment[];
+}
+
 // ── Merchant types (mirrors Backend /api/v1/merchants and /ledger schemas) ──
 
 export interface MerchantResponse {
@@ -447,6 +508,15 @@ export const apiClient = {
   },
   getOrders() {
     return raw<Order[]>("GET", "/orders/");
+  },
+  /// GET /merchants/{merchant_id}/orders/{order_id} — full order detail for the
+  /// merchant console, including buyer, line items, payment (mode of payment),
+  /// and fulfillments.
+  getMerchantOrder(merchantId: string, orderId: string) {
+    return raw<MerchantOrderDetail>(
+      "GET",
+      `/merchants/${merchantId}/orders/${orderId}`,
+    );
   },
   checkout(items: Array<{ variant_id: string; quantity: number }>, opts?: {
     delivery_address?: Record<string, unknown>;
