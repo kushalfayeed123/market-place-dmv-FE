@@ -321,6 +321,7 @@ export interface MerchantOrderDetail {
   fulfillment_status?: string | null;
   fulfilled_at?: string | null;
   fulfillment_summary?: string | null;
+  delivery_address?: Record<string, unknown> | null;
   idempotency_key?: string | null;
   buyer: MerchantOrderBuyer;
   items: MerchantOrderItemDetail[];

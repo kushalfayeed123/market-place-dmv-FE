@@ -1100,8 +1100,20 @@ export default function App() {
           Shown once payment has been initiated/completed so the buyer
           gets a clear confirmation with their order number and tracking. */}
       {orderSuccess && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+          onClick={() => {
+            setOrderSuccess(null);
+            setCheckoutPending(null);
+            setPaymentMethod(null);
+            setPaymentError(null);
+            setStatusText(null);
+          }}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <OrderSuccess
               order={orderSuccess as any}
               onClose={() => {

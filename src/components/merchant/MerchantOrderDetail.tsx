@@ -6,7 +6,6 @@ import { ChevronLeft, RefreshCw, ShoppingBag } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient, ApiError, type MerchantOrderDetail } from "@/lib/api/client";
 import { mreq } from "@/lib/api/merchant";
-import { MerchantShell } from "@/components/merchant/MerchantShell";
 import { MerchantOrderCards } from "@/components/merchant/MerchantOrderCards";
 import { MerchantOrderLineItems } from "@/components/merchant/MerchantOrderLineItems";
 import { MerchantOrderActions } from "@/components/merchant/MerchantOrderActions";
@@ -17,8 +16,46 @@ import {
 } from "@/components/merchant/orderDetailUtils";
 import type { OrderAction } from "@/components/merchant/orderActions";
 
+type DeliveryAddress = Record<string, unknown> | null | undefined;
+
+function DeliveryAddressCard({ address }: { address: DeliveryAddress }) {
+  const a = (address ?? {}) as Record<string, string>;
+  const hasAddress = address != null && Object.keys(address).length > 0;
+  return (
+    <section className="rounded-xl border border-[var(--color-border)] bg-white">
+      <div className="px-5 py-4 border-b border-[var(--color-border)]">
+        <h2 className="text-sm font-semibold text-[var(--color-foreground)]">
+          Delivery address
+        </h2>
+      </div>
+      <div className="px-5 py-4">
+        {hasAddress ? (
+          <address className="text-sm text-[var(--color-foreground)] not-italic">
+            {a.name && <strong className="block">{a.name}</strong>}
+            {a.line1 && <span className="block">{a.line1}</span>}
+            {a.line2 && <span className="block">{a.line2}</span>}
+            {a.city && <span className="block">{a.city}</span>}
+            {a.state && <span className="block">{a.state}</span>}
+            {a.postal_code && <span className="block">{a.postal_code}</span>}
+            {a.country && <span className="block">{a.country}</span>}
+            {a.phone && (
+              <span className="block text-[var(--color-muted)]">
+                Phone: {a.phone}
+              </span>
+            )}
+          </address>
+        ) : (
+          <p className="text-sm text-[var(--color-muted)]">
+            No delivery address captured.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function MerchantOrderDetail({ orderId }: { orderId: string }) {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [merchant, setMerchant] = useState<any>(null);
   const [order, setOrder] = useState<MerchantOrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,14 +130,7 @@ export function MerchantOrderDetail({ orderId }: { orderId: string }) {
   }
 
   return (
-    <MerchantShell
-      merchantId={merchant.id}
-      businessName={merchant.business_name || "Merchant"}
-      section="orders"
-      kycStatus={merchant.kyc_status}
-      onLogout={() => logout().catch(() => {})}
-    >
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Back + header */}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -154,6 +184,8 @@ export function MerchantOrderDetail({ orderId }: { orderId: string }) {
                 </p>
               </div>
             </header>
+
+            <DeliveryAddressCard address={order.delivery_address} />
 
             <MerchantOrderCards order={order} />
 
@@ -213,7 +245,6 @@ export function MerchantOrderDetail({ orderId }: { orderId: string }) {
             />
           </>
         )}
-      </div>
-    </MerchantShell>
+    </div>
   );
 }

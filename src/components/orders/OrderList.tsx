@@ -5,6 +5,7 @@ export interface Order {
   order_number: string;
   status: string;
   created_at: string;
+  total_amount:string;
   total: { amount: number; currency: string };
   items_count: number;
   merchant_name: string;

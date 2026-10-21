@@ -96,7 +96,7 @@ export function PaymentSelection({
           Select your payment option to complete this order.
         </p>
       </div>
-      <div role="radiogroup" aria-label="Payment method" className="divide-y divide-[var(--color-border)]">
+      <div role="radiogroup" aria-label="Payment method" className="relative divide-y divide-[var(--color-border)]">
         {methods.map((method) => {
           const isSelected = selected === method.key;
           const style = methodInfo(method.key);
@@ -137,6 +137,15 @@ export function PaymentSelection({
             </button>
           );
         })}
+        {loading && (
+          <div
+            role="status"
+            className="absolute inset-0 z-10 flex items-center justify-center bg-white/75"
+          >
+            <Loader2 size={24} className="animate-spin text-[var(--color-primary)]" />
+            <span className="sr-only">Processing payment…</span>
+          </div>
+        )}
       </div>
       {cta && onPay && (
         <div className="px-5 py-4 border-t border-[var(--color-border)] space-y-2">
