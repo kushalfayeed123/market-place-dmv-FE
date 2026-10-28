@@ -24,14 +24,18 @@ export function AuthFlow({ onSuccess, defaultMode = "login" }: AuthFlowProps) {
   const router = useRouter();
   const { isAuthenticated, loading, user } = useAuth();
 
-  // If the user is already authenticated, redirect to the appropriate page
-  // based on their role.
+  const destination = (role?: string) => {
+    const requested = new URLSearchParams(window.location.search).get("returnTo");
+    if (requested?.startsWith("/") && !requested.startsWith("//") && requested !== "/auth") {
+      return requested;
+    }
+    return role === "merchant_owner" ? "/merchant/dashboard" : "/";
+  };
+
+  // Return to the page that requested sign-in, preserving the active conversation.
   useEffect(() => {
     if (!loading && isAuthenticated) {
-      const dest = user?.role === "merchant_owner"
-        ? "/merchant/dashboard"
-        : "/";
-      router.replace(dest);
+      router.replace(destination(user?.role));
     }
   }, [isAuthenticated, loading, router, user?.role]);
 
@@ -45,11 +49,7 @@ export function AuthFlow({ onSuccess, defaultMode = "login" }: AuthFlowProps) {
 
   const handleSuccess = (role?: string) => {
     onSuccess?.();
-    // Hard navigate so the layout-level AuthProvider picks up the
-    // persisted session from sessionStorage.  Merchant owners go to
-    // their dashboard (which may prompt for store setup); buyers go
-    // to the marketplace home.
-    router.replace(role === "merchant_owner" ? "/merchant/dashboard" : "/");
+    router.replace(destination(role));
   };
 
   return (

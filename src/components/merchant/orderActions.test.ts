@@ -25,8 +25,8 @@ describe("getOrderActions", () => {
     expect(refund.tone).toBe("danger");
   });
 
-  it("offers 'Mark shipped' for a partially_fulfilled order", () => {
-    const a = getOrderActions("partially_fulfilled");
+  it("offers 'Mark shipped' for an accepted order", () => {
+    const a = getOrderActions("accepted");
     expect(a.map((x) => x.key)).toEqual(["ship", "cancel_refund"]);
     expect(a.find((x) => x.key === "ship")?.apiPath("o1")).toBe("/orders/o1/ship");
   });
@@ -35,6 +35,7 @@ describe("getOrderActions", () => {
     expect(getOrderActions("fulfilled")).toEqual([]);
     expect(getOrderActions("cancelled")).toEqual([]);
     expect(getOrderActions("refunded")).toEqual([]);
+    expect(getOrderActions("shipped")).toEqual([]);
   });
 
   it("marks destructive actions with a confirmation prompt", () => {

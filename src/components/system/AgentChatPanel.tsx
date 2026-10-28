@@ -144,21 +144,30 @@ export function AgentTranscript({
     });
 
   if (messages.length === 0 && !isSearching) {
-    return starters?.length ? (
-      <div className="rounded-3xl bg-[var(--color-primary-soft)] px-6 py-10 text-center sm:py-14">
-        <h1 className="text-2xl font-semibold sm:text-3xl">What are you shopping for?</h1>
-        <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-muted)]">
-          Describe it in your own words, including budget and use. The agent searches the whole marketplace.
-        </p>
-        <div className="mt-5 flex flex-wrap justify-center gap-2">
-          {starters.map((s) => (
-            <button key={s} type="button" onClick={() => onSend(s)} className="h-10 rounded-full border border-[var(--color-border)] bg-white px-4 text-sm hover:border-[var(--color-primary)]">
-              {s}
-            </button>
-          ))}
-        </div>
+    return (
+      <div className="space-y-4">
+        {statusText && (
+          <p role="status" className="rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-sm text-[var(--color-muted)]">
+            {statusText}
+          </p>
+        )}
+        {starters?.length ? (
+          <div className="rounded-3xl bg-[var(--color-primary-soft)] px-6 py-10 text-center sm:py-14">
+            <h1 className="text-2xl font-semibold sm:text-3xl">What are you shopping for?</h1>
+            <p className="mx-auto mt-2 max-w-md text-sm text-[var(--color-muted)]">
+              Describe it in your own words, including budget and use. The agent searches the whole marketplace.
+            </p>
+            <div className="mt-5 flex flex-wrap justify-center gap-2">
+              {starters.map((s) => (
+                <button key={s} type="button" onClick={() => onSend(s)} className="h-10 rounded-full border border-[var(--color-border)] bg-white px-4 text-sm hover:border-[var(--color-primary)]">
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
-    ) : null;
+    );
   }
 
   return (
@@ -225,6 +234,11 @@ export function AgentTranscript({
           <AgentBubble live={!!statusText}>{statusText ? statusText : <TypingDots />}</AgentBubble>
           {pendingKinds.length > 0 && <ResultsPlaceholder kinds={pendingKinds} />}
         </div>
+      )}
+      {!isSearching && statusText && (
+        <p role="status" className="rounded-xl border border-[var(--color-border)] bg-white px-4 py-3 text-sm text-[var(--color-muted)]">
+          {statusText}
+        </p>
       )}
     </div>
   );

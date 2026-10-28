@@ -237,7 +237,7 @@ function RenderDirective({
       <OrderList
         orders={
           Array.isArray(props.orders)
-            ? (props.orders as Order[])
+            ? props.orders
             : []
         }
         onTrack={(o) => onAction?.("track_order", o)}
@@ -375,16 +375,17 @@ function RenderDirective({
     );
     }
   if (directive.component === "SignInPrompt") {
-    const auth = props as unknown as ComponentProps<typeof SignInPrompt>;
-    return (
-      <SignInPrompt
-        {...auth}
-        onSignIn={() => {
-          onAction?.("sign_in");
-          window.location.href = "/auth";
-        }}
-      />
-    );
+      const auth = props as ComponentProps<typeof SignInPrompt> & {
+        resume_message?: string;
+      };
+      return (
+        <SignInPrompt
+          message={auth.message}
+          onSignIn={() => {
+            onAction?.("sign_in", auth.resume_message);
+          }}
+        />
+      );
   }
   if (directive.component === "ErrorMessage") {
     const err = props as unknown as ComponentProps<typeof ErrorMessage>;
@@ -412,7 +413,7 @@ const STARTER_PROMPTS = [
 ];
 
 export default function App() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, loading: authLoading, logout } = useAuth();
 
   // Browse - display a lot of products at once (REST catalog).
   const [browseProducts, setBrowseProducts] = useState<CatalogProduct[]>([]);
@@ -439,6 +440,51 @@ export default function App() {
   // Keeps every user message + agent reply (text and directives) so the
   // conversation stays visible while products are browsed.
   const [chatMessages, setChatMessages] = useState<CanvasMessage[]>([]);
+  const chatIdRef = useRef(0);
+  const [transcriptLoaded, setTranscriptLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = window.sessionStorage.getItem("mp_agent_transcript");
+      if (saved) {
+        const parsed: unknown = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const restored = parsed
+            .filter(
+              (message): message is CanvasMessage =>
+                !!message &&
+                typeof message === "object" &&
+                typeof message.id === "string" &&
+                (message.role === "user" || message.role === "agent"),
+            )
+            .map((message) => ({
+              ...message,
+              timestamp: new Date(message.timestamp),
+            }));
+          setChatMessages(restored);
+          chatIdRef.current = restored.reduce(
+            (max, message) => Math.max(max, Number(message.id) || 0),
+            0,
+          );
+        }
+      }
+    } catch (error) {
+      console.error("Could not restore the agent conversation.", error);
+      window.sessionStorage.removeItem("mp_agent_transcript");
+    } finally {
+      setTranscriptLoaded(true);
+    }
+  }, []);
+  useEffect(() => {
+    if (!transcriptLoaded) return;
+    try {
+      window.sessionStorage.setItem(
+        "mp_agent_transcript",
+        JSON.stringify(chatMessages),
+      );
+    } catch (error) {
+      console.error("Could not save the agent conversation.", error);
+    }
+  }, [chatMessages, transcriptLoaded]);
   // Ref mirror of chatMessages so that async callbacks (e.g. finishTurn
   // inside the SSE handler) always see the latest transcript even though
   // the handler closure is created once on mount.
@@ -447,7 +493,6 @@ export default function App() {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
   // Monotonic id for transcript entries (persists across turns within a session).
-  const chatIdRef = useRef(0);
   function pushChat(msg: Partial<CanvasMessage>) {
     const id = String(++chatIdRef.current);
     setChatMessages((prev) => [...prev, {
@@ -654,6 +699,14 @@ export default function App() {
     void agentGateway.sendMessage(text, confirmedToken);
   }
 
+  useEffect(() => {
+    if (authLoading || !isAuthenticated) return;
+    const resumeMessage = window.sessionStorage.getItem("mp_agent_resume_message");
+    if (!resumeMessage) return;
+    window.sessionStorage.removeItem("mp_agent_resume_message");
+    sendToAgent(resumeMessage);
+  }, [authLoading, isAuthenticated]);
+
   function handleChatSubmit(q: string) {
     const trimmed = q.trim();
     if (trimmed) sendToAgent(trimmed);
@@ -756,7 +809,10 @@ export default function App() {
 
   // ── Direct checkout (bypasses agent so buyer can complete offline) ──
   async function handleDirectCheckout() {
-    if (!user?.id) return;
+    if (!user?.id) {
+      setStatusText("Please sign in to place your order.");
+      return;
+    }
     // Gather cart items from the latest CartSummary directive in the transcript
     const lastCart = [...chatMessagesRef.current]
       .reverse()
@@ -868,6 +924,14 @@ export default function App() {
     } else if (action === "cancel") {
       setStatusText(null);
       setConfirmationDialog(null);
+      setChatMessages((messages) =>
+        messages.filter((message) => message.directive?.component !== "ConfirmationDialog"),
+      );
+    } else if (action === "sign_in") {
+      if (typeof data === "string" && data.trim()) {
+        window.sessionStorage.setItem("mp_agent_resume_message", data);
+      }
+      window.location.href = "/auth?returnTo=%2F";
     }
   }
 

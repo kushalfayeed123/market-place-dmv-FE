@@ -23,9 +23,9 @@ export interface OrderAction {
  * Mirrors the rules used by the orders list (`components/merchant/sections.ts`):
  *   - pending / awaiting_approval → Confirm payment (approve)
  *   - paid                       → Accept order
- *   - partially_fulfilled        → Mark shipped
+ *   - accepted                   → Mark shipped
  *   - pending                    → Cancel order (no refund, unpaid)
- *   - paid / partially_fulfilled → Cancel & refund
+ *   - paid / accepted / partially_fulfilled → Cancel & refund
  */
 export function getOrderActions(status: string): OrderAction[] {
   const actions: OrderAction[] = [];
@@ -48,7 +48,7 @@ export function getOrderActions(status: string): OrderAction[] {
     });
   }
 
-  if (status === "partially_fulfilled") {
+  if (status === "accepted") {
     actions.push({
       key: "ship",
       label: "Mark shipped",
@@ -66,7 +66,7 @@ export function getOrderActions(status: string): OrderAction[] {
     });
   }
 
-  if (status === "paid" || status === "partially_fulfilled") {
+  if (status === "paid" || status === "accepted" || status === "partially_fulfilled") {
     actions.push({
       key: "cancel_refund",
       label: "Cancel & refund",
