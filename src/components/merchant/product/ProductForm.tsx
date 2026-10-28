@@ -11,6 +11,7 @@ import { ChevronLeft, Loader2, Package, Pencil } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient, ApiError } from "@/lib/api/client";
 import type { CategoryResponse, Product, ProductUpdate, StoreResponse } from "@/lib/api/client";
+import type { ProductAttributeSchemaResponse } from "@/lib/api/client";
 import { formatMoney } from "@/components/catalog/format";
 
 import { ImageManager, type ImageItem, type ImageStatus } from "./ImageManager";
@@ -94,6 +95,9 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
   const [initialUrls, setInitialUrls] = useState<string[]>([]);
   const [items, setItems] = useState<ImageItem[]>([]);
   const [imgStatus, setImgStatus] = useState<Record<string, ImageStatus>>({});
+  const [attrSchema, setAttrSchema] = useState<Record<string, unknown> | null>(null);
+  const [attrValues, setAttrValues] = useState<Record<string, unknown>>({});
+  const [initialAttrValues, setInitialAttrValues] = useState<Record<string, unknown>>({});
 
   const [pageLoading, setPageLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -138,6 +142,8 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
           const urls = prod.urls ?? [];
           setInitialUrls(urls);
           setItems(urls.map((url) => ({ id: crypto.randomUUID(), kind: "existing" as const, url })));
+          setAttrValues((prod.attributes as Record<string, unknown>) ?? {});
+          setInitialAttrValues((prod.attributes as Record<string, unknown>) ?? {});
           reset({
             ...DEFAULTS,
             title: prod.title,
@@ -171,6 +177,33 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
   useEffect(() => {
     if (!isEdit && !slugTouched) setValue("slug", slugify(w.title ?? ""));
   }, [isEdit, slugTouched, w.title, setValue]);
+
+  // ── Fetch attribute schema when category changes ──────────────────
+  useEffect(() => {
+    if (!w.category_id) {
+      setAttrSchema(null);
+      setAttrValues({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await apiClient.getAttributeSchema(w.category_id!);
+        if (cancelled) return;
+        if (resp) {
+          setAttrSchema(resp.json_schema as Record<string, unknown>);
+        } else {
+          setAttrSchema(null);
+        }
+      } catch {
+        // No schema for this category â€” that's fine, attributes are optional.
+        setAttrSchema(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [w.category_id]);
 
   /* ---------- derived ---------- */
   const imagesDirty =
@@ -227,6 +260,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
         base_price_amount: toMinorUnits(data.base_price_amount),
         base_price_currency: data.base_price_currency,
         category_id: data.category_id || undefined,
+        attributes: Object.keys(attrValues).length > 0 ? attrValues : undefined,
         status: "draft", // never visible until stock and photos exist
       });
       pid = created.id;
@@ -287,6 +321,12 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     }
     if (dirtyFields.category_id) payload.category_id = data.category_id || null;
     if (dirtyFields.status) payload.status = data.status;
+
+    // Include attributes if they have changed
+    const attrChanged =
+      Object.keys(attrValues).length !== Object.keys(initialAttrValues).length ||
+      Object.keys(attrValues).some((k) => attrValues[k] !== initialAttrValues[k]);
+    if (attrChanged) payload.attributes = attrValues;
 
     // 1) fields + removed/reordered existing photos
     const existing = items.flatMap((i) => (i.kind === "existing" ? [i.url] : []));
@@ -476,6 +516,49 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
             <Field label="Description" htmlFor="description" error={errors.description?.message} hint={`${(w.description ?? "").length}/5000. Materials, size, care, what's included.`}>
               <textarea id="description" placeholder="Describe your product…" aria-invalid={inputErr("description")} {...register("description")} className={textareaCls} />
             </Field>
+
+            {/* Dynamic attribute fields based on the category's JSON schema */}
+            {attrSchema && (() => {
+              const properties = (attrSchema.properties as Record<string, Record<string, unknown>>) ?? {};
+              const requiredFields = (attrSchema.required as string[]) ?? [];
+              const allFields = Object.keys(properties);
+              if (allFields.length === 0) return null;
+              return (
+                <div className="space-y-4">
+                  <p className="text-sm font-medium text-[var(--color-foreground)]">
+                    Product attributes
+                  </p>
+                  {allFields.map((field) => {
+                    const prop = properties[field] ?? {};
+                    const isRequired = requiredFields.includes(field);
+                    const placeholder = prop.placeholder as string | undefined;
+                    return (
+                      <Field
+                        key={field}
+                        label={field.charAt(0).toUpperCase() + field.slice(1)}
+                        htmlFor={`attr-${field}`}
+                        required={isRequired}
+                        hint={isRequired ? "Required" : "Optional"}
+                      >
+                        <input
+                          id={`attr-${field}`}
+                          type="text"
+                          placeholder={placeholder ?? field}
+                          value={(attrValues[field] as string) ?? ""}
+                          onChange={(e) =>
+                            setAttrValues((prev) => ({
+                              ...prev,
+                              [field]: e.target.value || undefined,
+                            }))
+                          }
+                          className={inputCls}
+                        />
+                      </Field>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </Section>
 
         </fieldset>

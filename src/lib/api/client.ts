@@ -192,6 +192,11 @@ export interface ProductCreate {
   status?: string;
 }
 
+export interface ProductAttributeSchemaResponse {
+  category_id: string;
+  json_schema: Record<string, unknown>;
+}
+
 export interface ProductUpdate {
   title?: string;
   slug?: string | null;
@@ -447,6 +452,13 @@ export const apiClient = {
   },
   getCategories() {
     return raw<CategoryResponse[]>("GET", "/catalog/categories");
+  },
+  getAttributeSchema(categoryId: string) {
+    return raw<ProductAttributeSchemaResponse | null>(
+      "GET",
+      `/product-attribute-schemas/${categoryId}`,
+      { retry: 1 }
+    );
   },
   getMyStores(merchantId: string) {
     return raw<StoreResponse[]>("GET", `/stores/merchant/${merchantId}`);
