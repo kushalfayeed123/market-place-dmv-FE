@@ -15,6 +15,7 @@ export interface Product {
   rating?: number;
   reviews?: number;
   status: string;
+  product_types?: ("physical" | "digital" | "service")[];
 }
 
 /** Ordered image list: prefer `urls`, fall back to legacy `image_url`. */

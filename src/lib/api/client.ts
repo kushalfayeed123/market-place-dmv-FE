@@ -95,14 +95,16 @@ async function raw<T>(
     form?: URLSearchParams;
     formData?: FormData;
     idempotent?: boolean;
+      idempotencyKey?: string;
     retry?: number;
   } = {},
 ): Promise<T> {
-  const { body, form, formData, idempotent, retry = 0 } = opts;
+  const { body, form, formData, idempotent, idempotencyKey, retry = 0 } = opts;
   const headers: Record<string, string> = {};
   const token = authStore.getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
-  if (idempotent) headers["Idempotency-Key"] = newIdempotencyKey();
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+  else if (idempotent) headers["Idempotency-Key"] = newIdempotencyKey();
 
   let payload: BodyInit | undefined;
   if (form) {
@@ -169,6 +171,8 @@ export interface Product {
   store_id: string;
   category_id: string | null;
   fulfillment_type: string;
+  product_types?: string[];
+  digital_file_url?: string | null;
   status: string;
   base_price_amount: number;
   base_price_currency: string;
@@ -185,6 +189,7 @@ export interface ProductCreate {
   base_price_amount: number;
   base_price_currency?: string;
   category_id?: string | null;
+  product_types?: string[];
   merchant_id?: string | null;
   store_id?: string | null;
   attributes?: Record<string, unknown>;
@@ -205,6 +210,7 @@ export interface ProductUpdate {
   base_price_amount?: number;
   base_price_currency?: string;
   category_id?: string | null;
+  product_types?: string[];
   status?: string;
   attributes?: Record<string, unknown>;
   urls?: string[];
@@ -246,6 +252,12 @@ export interface ProductVariant {
   updated_at: string;
 }
 
+interface DigitalProductFileResponse {
+  url: string;
+  key: string;
+  filename: string;
+}
+
 export interface ProductVariantCreate {
   sku: string;
   attributes?: Record<string, unknown>;
@@ -269,7 +281,40 @@ export interface Order {
   total_amount: number;
   created_at: string;
   updated_at: string;
-  items: Array<Record<string, unknown>>;
+  items: Array<{
+    id: string;
+    product_id: string;
+    variant_id?: string | null;
+    merchant_id: string;
+    quantity: number;
+    unit_price: number;
+    currency: string;
+    line_total: number;
+  }>;
+}
+
+export interface OrderDetail extends Order {
+  order_number: string;
+  buyer_id: string;
+  total_amount: number;
+  currency: string;
+  item_count: number;
+  merchant_id?: string | null;
+  merchant_name?: string | null;
+  payment_status?: string | null;
+  fulfillment_status?: string | null;
+}
+
+export interface PaymentTransactionResponse {
+  id: string;
+  order_id: string;
+  provider: string;
+  provider_reference: string;
+  status: string;
+  amount: number;
+  currency: string;
+  payment_url?: string | null;
+  payment_method?: string | null;
 }
 
 // ── Merchant order detail (mirrors Backend merchant_console schemas) ─────
@@ -444,8 +489,9 @@ export const apiClient = {
   getMe() {
     return raw<Record<string, unknown>>("GET", "/auth/me");
   },
-    getProducts() {
-    return raw<Product[]>("GET", "/catalog/products");
+  getProducts(limit = 20) {
+    const query = new URLSearchParams({ limit: String(limit), status: "active" });
+    return raw<Product[]>("GET", `/catalog/products?${query.toString()}`);
   },
   getProduct(id: string) {
     return raw<Product>("GET", `/catalog/products/${id}`);
@@ -481,6 +527,23 @@ export const apiClient = {
     return raw<Product>("POST", `/catalog/products/${productId}/images`, {
       formData: form,
     });
+  },
+  /// POST /catalog/product-file-upload — upload content through the backend.
+  uploadProductFile(productId: string, file: File, fulfillment: "digital") {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("product_id", productId);
+    formData.append("fulfillment", fulfillment);
+    return raw<DigitalProductFileResponse>("POST", "/catalog/product-file-upload", {
+      formData,
+    });
+  },
+  /// GET /catalog/products/{id}/digital-file — get a temporary buyer-authorized URL.
+  getPurchasedProductFile(productId: string) {
+    return raw<{ download_url: string; expires_in: number }>(
+      "GET",
+      `/catalog/products/${productId}/digital-file`,
+    );
   },
   createProductVariant(productId: string, payload: ProductVariantCreate) {
     return raw<ProductVariant>("POST", `/catalog/products/${productId}/variants`, {
@@ -522,6 +585,19 @@ export const apiClient = {
   getOrders() {
     return raw<Order[]>("GET", "/orders/");
   },
+  getOrder(orderId: string) {
+    return raw<OrderDetail>("GET", `/orders/${orderId}`);
+  },
+  getPaymentByOrder(orderId: string) {
+    return raw<PaymentTransactionResponse>("GET", `/payments/order/${orderId}`);
+  },
+  verifyPaymentByOrder(orderId: string) {
+    return raw<PaymentTransactionResponse>(
+      "POST",
+      `/payments/order/${orderId}/verify`,
+      { body: {} },
+    );
+  },
   /// GET /merchants/{merchant_id}/orders/{order_id} — full order detail for the
   /// merchant console, including buyer, line items, payment (mode of payment),
   /// and fulfillments.
@@ -533,20 +609,23 @@ export const apiClient = {
   },
   checkout(items: Array<{ variant_id: string; quantity: number }>, opts?: {
     delivery_address?: Record<string, unknown>;
-    fulfillment_option?: "delivery" | "pickup";
+    fulfillment_option?: "delivery" | "pickup" | "digital" | "service";
+    idempotency_key?: string;
   }) {
     const body: Record<string, unknown> = { items };
     if (opts?.delivery_address) body.delivery_address = opts.delivery_address;
     if (opts?.fulfillment_option) body.fulfillment_option = opts.fulfillment_option;
     return raw<Record<string, unknown>>("POST", "/orders/checkout", {
       body,
-      idempotent: true,
+      idempotent: !opts?.idempotency_key,
+      idempotencyKey: opts?.idempotency_key,
     });
   },
-  processPayment(orderId: string, provider = "paystack") {
-    return raw<Record<string, unknown>>("POST", "/payments/process", {
+  processPayment(orderId: string, provider = "paystack", idempotencyKey?: string) {
+    return raw<PaymentTransactionResponse>("POST", "/payments/process", {
       body: { order_id: orderId, provider },
-      idempotent: true,
+      idempotent: !idempotencyKey,
+      idempotencyKey,
     });
   },
 
@@ -617,4 +696,3 @@ export const apiClient = {
     });
   },
 };
-

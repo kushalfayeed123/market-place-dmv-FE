@@ -15,6 +15,8 @@ import type { ProductAttributeSchemaResponse } from "@/lib/api/client";
 import { formatMoney } from "@/components/catalog/format";
 
 import { ImageManager, type ImageItem, type ImageStatus } from "./ImageManager";
+import { DigitalFilePicker } from "./DigitalFilePicker";
+import { getDigitalFileContentType } from "./digitalFileUtils";
 import { ListingChecklist } from "./ListingChecklist";
 import { VariantStock } from "./VariantStock";
 import { ChoiceCards, Field, Notice, Section, inputCls, textareaCls } from "./ui";
@@ -34,7 +36,11 @@ const schema = z.object({
   title: z.string().trim().min(1, "Give your product a title").max(200, "Keep the title under 200 characters"),
   slug: z.string().trim().max(120).optional(),
   description: z.string().max(5000, "Keep the description under 5,000 characters").optional(),
-  fulfillment_type: z.enum(["physical", "digital", "service"]),
+  product_types: z
+    .array(z.enum(["physical", "digital", "service"]))
+    .nonempty("Select at least one product type")
+    .default(["physical"]),
+  fulfillment_type: z.enum(["physical", "digital", "service"]).optional(),
   base_price_amount: z
     .number({ invalid_type_error: "Enter a price" })
     .min(0, "Price can't be negative"),
@@ -51,10 +57,16 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 type Intent = "draft" | "publish";
 
+function formProductTypes(value: string): FormValues["product_types"] {
+  const type = value === "digital" || value === "service" ? value : "physical";
+  return [type];
+}
+
 const DEFAULTS: FormValues = {
   title: "",
   slug: "",
   description: "",
+  product_types: ["physical"],
   fulfillment_type: "physical",
   base_price_amount: 0,
   base_price_currency: "NGN",
@@ -95,6 +107,9 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
   const [initialUrls, setInitialUrls] = useState<string[]>([]);
   const [items, setItems] = useState<ImageItem[]>([]);
   const [imgStatus, setImgStatus] = useState<Record<string, ImageStatus>>({});
+  const [digitalFile, setDigitalFile] = useState<File | null>(null);
+  const [digitalUploadStatus, setDigitalUploadStatus] = useState<ImageStatus | null>(null);
+  const [hasExistingDigitalFile, setHasExistingDigitalFile] = useState(false);
   const [attrSchema, setAttrSchema] = useState<Record<string, unknown> | null>(null);
   const [attrValues, setAttrValues] = useState<Record<string, unknown>>({});
   const [initialAttrValues, setInitialAttrValues] = useState<Record<string, unknown>>({});
@@ -111,7 +126,12 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
   const [done, setDone] = useState(false);
 
   // Resume state for create: a retry never creates a second product or re-uploads photos.
-  const progress = useRef({ productId: null as string | null, variantDone: false, uploaded: new Set<string>() });
+  const progress = useRef({
+    productId: null as string | null,
+    variantDone: false,
+    digitalFileUploaded: false,
+    uploaded: new Set<string>(),
+  });
 
   const {
     register,
@@ -144,11 +164,13 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
           setItems(urls.map((url) => ({ id: crypto.randomUUID(), kind: "existing" as const, url })));
           setAttrValues((prod.attributes as Record<string, unknown>) ?? {});
           setInitialAttrValues((prod.attributes as Record<string, unknown>) ?? {});
+          setHasExistingDigitalFile(Boolean(prod.digital_file_url));
           reset({
             ...DEFAULTS,
             title: prod.title,
             slug: prod.slug ?? "",
             description: prod.description ?? "",
+            product_types: formProductTypes(prod.product_types?.[0] ?? prod.fulfillment_type),
             fulfillment_type: prod.fulfillment_type as FormValues["fulfillment_type"],
             base_price_amount: fromMinorUnits(prod.base_price_amount),
             base_price_currency: prod.base_price_currency,
@@ -210,7 +232,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     isEdit &&
     (items.length !== initialUrls.length ||
       items.some((it, i) => it.kind === "new" || it.url !== initialUrls[i]));
-  const dirtyAny = isDirty || imagesDirty || stockUnsaved || (!isEdit && items.length > 0);
+  const dirtyAny = isDirty || imagesDirty || stockUnsaved || (!isEdit && items.length > 0) || digitalFile !== null;
 
   useEffect(() => {
     if (!dirtyAny || done) return;
@@ -229,7 +251,11 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     categoryId: w.category_id ?? "",
     description: w.description ?? "",
     imageCount: items.length,
-    fulfillment: w.fulfillment_type,
+    fulfillment: w.fulfillment_type ?? "physical",
+    hasDigitalFile:
+      digitalFile !== null ||
+      progress.current.digitalFileUploaded ||
+      hasExistingDigitalFile,
     hasVariant: isEdit ? variants.length > 0 : true,
     hasSellableStock: isEdit
       ? variants.some(isSellable)
@@ -243,7 +269,33 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     router.push(PRODUCTS_URL);
   }
 
+  async function uploadDigitalContent(productId: string) {
+    if (!digitalFile || progress.current.digitalFileUploaded) return;
+    const contentType = getDigitalFileContentType(digitalFile);
+    if (!contentType) {
+      throw new Error("Choose a PDF, EPUB, or Word document (.doc or .docx).");
+    }
+
+    setPhase("Uploading digital content…");
+    setDigitalUploadStatus("uploading");
+    try {
+      await apiClient.uploadProductFile(productId, digitalFile, "digital");
+      progress.current.digitalFileUploaded = true;
+      setHasExistingDigitalFile(true);
+      setDigitalUploadStatus("done");
+    } catch (e) {
+      setDigitalUploadStatus("error");
+      throw new Error(
+        `Digital file failed to upload (${errText(e, "network error")}). Your product was saved. Press the button again to retry.`,
+      );
+    }
+  }
+
   async function runCreate(data: FormValues, why: Intent) {
+    if (why === "publish" && data.product_types.includes("digital") && !digitalFile) {
+      setError("Upload a PDF, EPUB, or Word file before publishing a digital product.");
+      return;
+    }
     if (!stores.length) {
       setError("No store found. Complete your merchant setup before adding products.");
       return;
@@ -256,10 +308,11 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
         title: data.title.trim(),
         slug: data.slug || undefined,
         description: data.description?.trim() || undefined,
-        fulfillment_type: data.fulfillment_type,
+        fulfillment_type: data.product_types?.[0] || "physical",
         base_price_amount: toMinorUnits(data.base_price_amount),
         base_price_currency: data.base_price_currency,
         category_id: data.category_id || undefined,
+        product_types: data.product_types,
         attributes: Object.keys(attrValues).length > 0 ? attrValues : undefined,
         status: "draft", // never visible until stock and photos exist
       });
@@ -297,6 +350,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
       p.uploaded.add(it.id);
       setImgStatus((s) => ({ ...s, [it.id]: "done" }));
     }
+    if (data.product_types.includes("digital")) await uploadDigitalContent(pid);
     if (why === "publish") {
       setPhase("Publishing…");
       await apiClient.updateProduct(pid, { status: "active" });
@@ -306,7 +360,11 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
 
   async function runEdit(data: FormValues) {
     const pid = productId!;
-    if (dirtyFields.status && data.status === "active" && !readiness.ready) {
+    if (
+      data.status === "active" &&
+      (dirtyFields.status || dirtyFields.product_types) &&
+      !readiness.ready
+    ) {
       setError(`Before listing, finish: ${readiness.missing.map((m) => m.label.toLowerCase()).join(", ")}.`);
       return;
     }
@@ -315,6 +373,10 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     if (dirtyFields.slug) payload.slug = data.slug || undefined;
     if (dirtyFields.description) payload.description = data.description ?? "";
     if (dirtyFields.fulfillment_type) payload.fulfillment_type = data.fulfillment_type;
+    if (dirtyFields.product_types) {
+      payload.product_types = data.product_types;
+      payload.fulfillment_type = data.product_types[0];
+    }
     if (dirtyFields.base_price_amount || dirtyFields.base_price_currency) {
       payload.base_price_amount = toMinorUnits(data.base_price_amount);
       payload.base_price_currency = data.base_price_currency;
@@ -361,6 +423,8 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
       }
     }
 
+    if (data.product_types.includes("digital")) await uploadDigitalContent(pid);
+
     // 3) final photo order
     const desired = resolved.flatMap((i) => (i.kind === "existing" ? [i.url] : []));
     if (desired.length === serverUrls.length && desired.some((u, i) => u !== serverUrls[i])) {
@@ -385,6 +449,10 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
         setError(null);
         setIntent(why);
         try {
+          // Ensure product_types has at least one type
+          if (!data.product_types || data.product_types.length === 0) {
+            data.product_types = [data.fulfillment_type || 'physical'];
+          }
           if (isEdit) await runEdit(data);
           else await runCreate(data, why);
         } catch (e) {
@@ -495,14 +563,14 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
                 </select>
               </Field>
               <div>
-                <p className="mb-1.5 text-sm font-medium">Product type</p>
+                <p className="mb-1.5 text-sm font-medium">Product types</p>
                 <ChoiceCards
-                  name="fulfillment_type"
+                  name="product_types"
                   columns={3}
-                  value={w.fulfillment_type}
+                  value={w.product_types?.[0] ?? "physical"}
                   onChange={(v) => {
+                    setValue("product_types", [v], { shouldDirty: true });
                     setValue("fulfillment_type", v, { shouldDirty: true });
-                    if (!isEdit) setValue("inventory_policy", v === "physical" ? "tracked" : "unlimited");
                   }}
                   options={[
                     { value: "physical", label: "Physical" },
@@ -562,6 +630,32 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
           </Section>
 
         </fieldset>
+
+        {w.product_types?.includes("digital") && (
+          <Section
+            title="Digital file"
+            description="Required before publishing. PDF, EPUB, and Word documents only."
+          >
+            <p className="text-sm text-[var(--color-foreground)]">
+              Upload the file buyers will access after purchase.
+            </p>
+            <DigitalFilePicker
+              file={digitalFile}
+              onChange={(file) => {
+                setDigitalFile(file);
+                progress.current.digitalFileUploaded = false;
+                setDigitalUploadStatus(null);
+              }}
+              disabled={busy}
+            />
+            {digitalUploadStatus === "uploading" && (
+              <p role="status" className="mt-2 text-sm text-[var(--color-muted)]">Uploading digital content…</p>
+            )}
+            {digitalUploadStatus === "done" && (
+              <p role="status" className="mt-2 text-sm text-[var(--color-success-fg)]">Digital content uploaded.</p>
+            )}
+          </Section>
+        )}
 
         {/* Photos stay editable after a draft is created so a failed upload can be removed or retried. */}
         <Section title="Photos" description="Products with clear photos sell better. You need at least one to list.">

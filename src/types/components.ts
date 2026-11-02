@@ -18,6 +18,7 @@ export type ComponentName =
   | "OrderDetail"
   | "OrderSuccess"
   | "PaymentSelection"
+  | "DeliveryAddressForm"
   | "MerchantBalanceCard"
   | "LedgerTable"
   | "MerchantProfile"

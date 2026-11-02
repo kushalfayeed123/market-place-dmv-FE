@@ -89,6 +89,7 @@ export function getReadiness(i: {
   fulfillment: Fulfillment;
   hasVariant: boolean;
   hasSellableStock: boolean;
+  hasDigitalFile: boolean;
 }): { items: ReadinessItem[]; ready: boolean; missing: ReadinessItem[] } {
   const items: ReadinessItem[] = [
     { key: "title", label: "Title", hint: "Add a product title.", ok: i.title.trim().length > 0, required: true },
@@ -112,6 +113,15 @@ export function getReadiness(i: {
     ok: i.description.trim().length >= 20,
     required: false,
   });
+  if (i.fulfillment === "digital") {
+    items.push({
+      key: "digital_file",
+      label: "Digital file",
+      hint: "Upload a PDF, EPUB, or Word document.",
+      ok: i.hasDigitalFile,
+      required: true,
+    });
+  }
   const missing = items.filter((x) => x.required && !x.ok);
   return { items, ready: missing.length === 0, missing };
 }
