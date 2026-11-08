@@ -6,6 +6,7 @@ export type CatalogProduct = Product & {
   store_name?: string;
   store_id?: string;
   fulfillment_type: CatalogProductType;
+  inventory_policy?: string;
 };
 
 export type CatalogProductType = "physical" | "digital" | "service";
@@ -31,6 +32,16 @@ export function toUiProduct(product: BackendProduct): CatalogProduct {
     ? product.fulfillment_type
     : undefined;
 
+  // Only 'tracked' variants have a stock count; untracked/unlimited variants
+  // (digital products, services) leave quantity_available undefined so they
+  // are never shown as sold out.
+  const firstVariant = product.variants?.[0];
+  const inventoryPolicy = firstVariant?.inventory_policy ?? "tracked";
+  const quantityAvailable =
+    firstVariant && inventoryPolicy === "tracked"
+      ? (firstVariant.quantity_available ?? 0)
+      : undefined;
+
   return {
     id: product.id,
     name: product.title,
@@ -45,6 +56,8 @@ export function toUiProduct(product: BackendProduct): CatalogProduct {
     product_types: productTypes.length ? productTypes : [fulfillmentType ?? "physical"],
     urls: product.urls?.length ? product.urls : undefined,
     image_url: product.urls?.[0] ?? undefined,
+    inventory_policy: inventoryPolicy,
+    quantity_available: quantityAvailable,
   };
 }
 

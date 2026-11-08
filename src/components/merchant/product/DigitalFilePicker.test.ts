@@ -7,7 +7,6 @@ describe("getDigitalFileContentType", () => {
   it.each([
     ["book.pdf", "application/pdf"],
     ["book.epub", "application/epub+zip"],
-    ["book.doc", "application/msword"],
     [
       "book.docx",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -18,6 +17,7 @@ describe("getDigitalFileContentType", () => {
 
   it("rejects other extensions and mismatched MIME types", () => {
     expect(getDigitalFileContentType(file("video.mp4", "video/mp4"))).toBeNull();
+    expect(getDigitalFileContentType(file("book.doc", "application/msword"))).toBeNull();
     expect(getDigitalFileContentType(file("fake.pdf", "image/png"))).toBeNull();
   });
 });

@@ -2,10 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { AlertCircle, BookOpen, LoaderCircle, X } from "lucide-react";
-import { ApiError, apiClient, type Product } from "@/lib/api/client";
+import {
+  ApiError,
+  apiClient,
+  type DigitalProductFileDownloadResponse,
+  type Product,
+} from "@/lib/api/client";
+import { DigitalReader } from "./DigitalReader";
 
 interface LibraryItem {
   product: Product;
+}
+
+interface ActiveReader {
+  product: Product;
+  file: DigitalProductFileDownloadResponse;
 }
 
 const eligibleOrderStatuses = new Set([
@@ -21,6 +32,7 @@ export function DigitalLibrary({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeProductId, setActiveProductId] = useState<string | null>(null);
+  const [activeReader, setActiveReader] = useState<ActiveReader | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,21 +76,28 @@ export function DigitalLibrary({ onClose }: { onClose: () => void }) {
   async function requestAccess(productId: string) {
     setActiveProductId(productId);
     setError(null);
-    const readingWindow = window.open("about:blank", "_blank");
-    if (!readingWindow) {
-      setError("Allow pop-ups to open your digital product, then try again.");
-      setActiveProductId(null);
-      return;
-    }
     try {
-      const { download_url } = await apiClient.getPurchasedProductFile(productId);
-      readingWindow.location.replace(download_url);
+      const file = await apiClient.getPurchasedProductFile(productId);
+      const item = items.find(({ product }) => product.id === productId);
+      if (!item) {
+        throw new Error("This product is no longer available in your library.");
+      }
+      setActiveReader({ product: item.product, file });
     } catch (e) {
-      readingWindow.close();
       setError(e instanceof ApiError || e instanceof Error ? e.message : "Could not open this digital product.");
     } finally {
       setActiveProductId(null);
     }
+  }
+
+  if (activeReader) {
+    return (
+      <DigitalReader
+        title={activeReader.product.title}
+        file={activeReader.file}
+        onClose={() => setActiveReader(null)}
+      />
+    );
   }
 
   return (

@@ -258,6 +258,14 @@ interface DigitalProductFileResponse {
   filename: string;
 }
 
+export interface DigitalProductFileDownloadResponse {
+  download_url: string;
+  expires_in: number;
+  filename: string;
+  content_type: string;
+  format: string;
+}
+
 export interface ProductVariantCreate {
   sku: string;
   attributes?: Record<string, unknown>;
@@ -540,7 +548,7 @@ export const apiClient = {
   },
   /// GET /catalog/products/{id}/digital-file — get a temporary buyer-authorized URL.
   getPurchasedProductFile(productId: string) {
-    return raw<{ download_url: string; expires_in: number }>(
+    return raw<DigitalProductFileDownloadResponse>(
       "GET",
       `/catalog/products/${productId}/digital-file`,
     );
@@ -562,6 +570,12 @@ export const apiClient = {
   },
   listProductVariants(productId: string) {
     return raw<ProductVariant[]>("GET", `/catalog/products/${productId}/variants`);
+  },
+  getProductVariant(productId: string, variantId: string) {
+    return raw<ProductVariant>(
+      "GET",
+      `/catalog/products/${productId}/variants/${variantId}`,
+    );
   },
   likeProduct(productId: string) {
     return raw<void>("POST", `/catalog/products/${productId}/like`, {

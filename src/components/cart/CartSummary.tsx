@@ -13,8 +13,9 @@ export interface CartItem {
   quantity: number;
   unit_price: { amount: number; currency: string };
   line_total: { amount: number; currency: string };
-  quantity_available: number;
-  /** Optional per-line cap the backend can send (stock the shopper may still hold). */
+  /** Available stock; null/undefined when stock is not tracked (digital/service/unlimited). */
+  quantity_available?: number | null;
+  /** Optional per-line cap the backend can send; 1 for digital products and services (one copy only). */
   max_quantity?: number | null;
 }
 
@@ -102,7 +103,8 @@ export function CartSummary({
         <div className="mx-5 mt-4 flex items-start gap-2.5 rounded-xl bg-[var(--color-success-bg)] px-4 py-3 text-sm text-[var(--color-success-fg)]">
           <CheckCircle2 size={18} className="mt-0.5 shrink-0" />
           <p>
-            <span className="font-medium">{added.product_name}</span> was added. Need more? Change the quantity below.
+            <span className="font-medium">{added.product_name}</span> was added.
+            {(added.max_quantity ?? 1) > 1 ? " Need more? Change the quantity below." : ""}
           </p>
         </div>
       )}
@@ -111,7 +113,10 @@ export function CartSummary({
         {items.map((item) => {
           const q = qtyOf(item);
           const removing = q === 0;
-          const max = Math.min(item.max_quantity ?? HARD_MAX, HARD_MAX);
+          // Stock count only applies to tracked items; digital/service lines are capped at 1.
+          const stockCap = item.quantity_available != null ? item.quantity_available : HARD_MAX;
+          const max = Math.max(1, Math.min(item.max_quantity ?? stockCap, HARD_MAX));
+          const singleUnit = max <= 1;
           const isNew = !readOnly && item.product_id === highlight_product_id;
           return (
             <li key={item.variant_id} className={"flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-4 " + (isNew ? "bg-[var(--color-primary-soft)]" : "")}>
@@ -127,6 +132,13 @@ export function CartSummary({
                 <button type="button" onClick={() => setQty(item, item.quantity)} className="inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-sm text-[var(--color-primary)] hover:bg-[var(--color-primary-soft)]">
                   <Undo2 size={14} /> Undo remove
                 </button>
+              ) : singleUnit ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[var(--color-muted)]">Qty {q}</span>
+                  <button type="button" onClick={() => setQty(item, 0)} aria-label={`Remove ${item.product_name}`} className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-[var(--color-danger)]">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               ) : (
                 <div className="flex items-center gap-2" role="group" aria-label={`Quantity for ${item.product_name}`}>
                   <button type="button" className={stepBtn} disabled={q <= 1} onClick={() => setQty(item, q - 1)} aria-label={`Decrease quantity of ${item.product_name}`}>

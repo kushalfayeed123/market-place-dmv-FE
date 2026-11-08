@@ -29,9 +29,15 @@ export function ProductDetail({
   const [qty, setQty] = useState(1);
   const [expanded, setExpanded] = useState(false);
 
-  const stock = product.quantity_available;
-  const outOfStock = stock === 0;
-  const maxQty = stock !== undefined ? Math.max(stock, 1) : 99;
+  // Stock count is only meaningful for tracked variants; digital products and
+  // services (untracked/unlimited) report null and never show as sold out.
+  const stock = product.quantity_available == null ? undefined : product.quantity_available;
+  const tracked = (product.inventory_policy ?? "tracked") === "tracked";
+  const outOfStock = tracked && stock === 0;
+  // Digital products and services are single-unit: only one copy per order.
+  const types = product.product_types ?? (product.fulfillment_type ? [product.fulfillment_type] : []);
+  const singleUnit = types.includes("digital") || types.includes("service");
+  const maxQty = singleUnit ? 1 : tracked && stock !== undefined ? Math.max(stock, 1) : 99;
   const merchant = cleanLabel(product.merchant_name);
   const total = product.price.amount * qty;
   const longDesc = (product.description?.length ?? 0) > 280;
@@ -157,7 +163,7 @@ export function ProductDetail({
             )}
 
             <div className="flex flex-col gap-2 text-sm">
-              {stock !== undefined && (
+              {tracked && stock !== undefined && (
                 <div className="flex items-center gap-2">
                   {outOfStock ? (
                     <><AlertCircle size={15} className="text-[var(--color-danger)]" /><span>Sold out</span></>
@@ -178,27 +184,33 @@ export function ProductDetail({
             </div>
 
             <div className="mt-auto flex flex-wrap items-center gap-3 pt-2">
-              <div className="inline-flex h-12 items-center rounded-xl border border-[var(--color-border)]" role="group" aria-label="Quantity">
-                <button
-                  type="button"
-                  onClick={() => setQty((q) => Math.max(1, q - 1))}
-                  disabled={qty <= 1 || outOfStock}
-                  aria-label="Decrease quantity"
-                  className="flex h-12 w-11 items-center justify-center disabled:opacity-40"
-                >
-                  <Minus size={16} />
-                </button>
-                <span className="w-8 text-center text-sm font-semibold" aria-live="polite">{qty}</span>
-                <button
-                  type="button"
-                  onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
-                  disabled={qty >= maxQty || outOfStock}
-                  aria-label="Increase quantity"
-                  className="flex h-12 w-11 items-center justify-center disabled:opacity-40"
-                >
-                  <Plus size={16} />
-                </button>
-              </div>
+              {singleUnit ? (
+                <span className="inline-flex h-12 items-center rounded-xl border border-[var(--color-border)] px-4 text-sm font-semibold" aria-label="Quantity: 1">
+                  Qty 1
+                </span>
+              ) : (
+                <div className="inline-flex h-12 items-center rounded-xl border border-[var(--color-border)]" role="group" aria-label="Quantity">
+                  <button
+                    type="button"
+                    onClick={() => setQty((q) => Math.max(1, q - 1))}
+                    disabled={qty <= 1 || outOfStock}
+                    aria-label="Decrease quantity"
+                    className="flex h-12 w-11 items-center justify-center disabled:opacity-40"
+                  >
+                    <Minus size={16} />
+                  </button>
+                  <span className="w-8 text-center text-sm font-semibold" aria-live="polite">{qty}</span>
+                  <button
+                    type="button"
+                    onClick={() => setQty((q) => Math.min(maxQty, q + 1))}
+                    disabled={qty >= maxQty || outOfStock}
+                    aria-label="Increase quantity"
+                    className="flex h-12 w-11 items-center justify-center disabled:opacity-40"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 disabled={outOfStock || cartState === "adding"}

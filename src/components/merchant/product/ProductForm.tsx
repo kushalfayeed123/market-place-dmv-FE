@@ -273,7 +273,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     if (!digitalFile || progress.current.digitalFileUploaded) return;
     const contentType = getDigitalFileContentType(digitalFile);
     if (!contentType) {
-      throw new Error("Choose a PDF, EPUB, or Word document (.doc or .docx).");
+      throw new Error("Choose a PDF, EPUB, or Word document (.docx).");
     }
 
     setPhase("Uploading digital content…");
@@ -302,6 +302,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
     }
     const p = progress.current;
     let pid = p.productId;
+    let existingVariant = null as Product["variants"][number] | null;
     if (!pid) {
       setPhase("Creating product…");
       const created = await apiClient.createProduct({
@@ -319,18 +320,35 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
       pid = created.id;
       p.productId = pid;
       setCreatedId(pid);
+      // The backend auto-creates a default variant on product creation.
+      existingVariant = (created.variants ?? [])[0] ?? null;
     }
     if (!p.variantDone) {
       setPhase("Setting up stock…");
-      await apiClient.createProductVariant(pid, {
-        sku: data.sku || generateSku(data.title),
-        attributes: {},
-        price_override_amount: null,
-        price_override_currency: null,
-        inventory_policy: data.inventory_policy,
-        quantity_available: data.quantity_available,
-        quantity_reserved: 0,
-      });
+      if (!existingVariant) {
+        // Resume path: the draft already exists, look up its variant.
+        const prod = await apiClient.getProduct(pid);
+        existingVariant = (prod.variants ?? [])[0] ?? null;
+      }
+      if (existingVariant) {
+        // Update the auto-created default variant instead of adding a duplicate.
+        await apiClient.updateProductVariant(pid, existingVariant.id, {
+          sku: data.sku || existingVariant.sku || generateSku(data.title),
+          inventory_policy: data.inventory_policy,
+          quantity_available:
+            data.inventory_policy === "tracked" ? data.quantity_available : undefined,
+        });
+      } else {
+        await apiClient.createProductVariant(pid, {
+          sku: data.sku || generateSku(data.title),
+          attributes: {},
+          price_override_amount: null,
+          price_override_currency: null,
+          inventory_policy: data.inventory_policy,
+          quantity_available: data.quantity_available,
+          quantity_reserved: 0,
+        });
+      }
       p.variantDone = true;
     }
     const pending = items.filter((i) => i.kind === "new" && !p.uploaded.has(i.id));

@@ -22,7 +22,7 @@ export function DigitalFilePicker({
     if (!selected) return;
 
     if (!getDigitalFileContentType(selected)) {
-      setError("Choose a PDF, EPUB, or Word document (.doc or .docx).");
+      setError("Choose a PDF, EPUB, or Word document (.docx).");
       return;
     }
 
@@ -64,7 +64,7 @@ export function DigitalFilePicker({
         >
           <FileText size={28} className="text-[var(--color-primary)]" />
           <span className="text-sm font-medium">Choose a digital product file</span>
-          <span className="text-xs text-[var(--color-muted)]">PDF, EPUB, or Word (.doc, .docx)</span>
+          <span className="text-xs text-[var(--color-muted)]">PDF, EPUB, or Word (.docx)</span>
         </label>
       )}
       {error && <p role="alert" className="text-sm text-[var(--color-danger-fg)]">{error}</p>}

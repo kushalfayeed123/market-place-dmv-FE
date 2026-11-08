@@ -910,10 +910,14 @@ export default function App() {
 
   function handleAddToCart(p: Product, quantity = 1) {
     if (busyRef.current) return;
+    // Digital products and services are single-unit: only one copy can be added.
+    const types = p.product_types ?? (p.fulfillment_type ? [p.fulfillment_type] : []);
+    const singleUnit = types.includes("digital") || types.includes("service");
+    const qty = singleUnit ? 1 : Math.max(1, quantity);
     setCartState((prev) => ({ ...prev, [p.id]: "adding" }));
     // After an add the next step is choosing the quantity, so the turn shows the cart, not product details.
     sendToAgent(
-      quantity > 1 ? `Add ${quantity} of ${p.name} to my cart` : `Add ${p.name} to my cart`,
+      qty > 1 ? `Add ${qty} of ${p.name} to my cart` : `Add ${p.name} to my cart`,
       undefined,
       { cart: true, addedProductId: p.id },
     );

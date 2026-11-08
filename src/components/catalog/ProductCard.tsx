@@ -12,6 +12,8 @@ export interface Product {
   image_url?: string;
   urls?: string[]; // product image URLs (primary first, then the gallery)
   quantity_available?: number;
+  inventory_policy?: string;
+  fulfillment_type?: string;
   rating?: number;
   reviews?: number;
   status: string;
@@ -40,11 +42,11 @@ export function ProductCard({
 }) {
   const [broken, setBroken] = useState(false);
   const images = productImages(product);
-  const outOfStock = product.quantity_available === 0;
-  const lowStock =
-    product.quantity_available !== undefined &&
-    product.quantity_available > 0 &&
-    product.quantity_available <= 10;
+  // Only tracked stock can run out; untracked/unlimited (digital, services) never show sold out.
+  const stock = product.quantity_available == null ? undefined : product.quantity_available;
+  const tracked = (product.inventory_policy ?? "tracked") === "tracked";
+  const outOfStock = tracked && stock === 0;
+  const lowStock = stock !== undefined && stock > 0 && stock <= 10;
   const meta = [cleanLabel(product.merchant_name), product.category_name]
     .filter(Boolean)
     .join(" · ");
