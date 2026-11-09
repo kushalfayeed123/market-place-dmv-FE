@@ -93,14 +93,14 @@ export class AgentGatewayClient {
     confirmedToken?: string,
   ): Promise<void> {
     if (!this.ready) {
-      this.handlers.onError?.("Gateway not connected");
+      this.handlers.onError?.("The assistant isn't connected yet — please try again.");
       this.handlers.onEnd?.();
       return;
     }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-      this.handlers.onError?.("Request timed out after 60 seconds");
+      this.handlers.onError?.("The assistant is taking a while — please try again.");
       this.handlers.onEnd?.();
     }, 60_000);
     try {
@@ -117,7 +117,7 @@ export class AgentGatewayClient {
       });
       clearTimeout(timeoutId);
       if (!res.ok || !res.body) {
-        this.handlers.onError?.("Gateway unreachable (" + res.status + ")");
+        this.handlers.onError?.("The assistant isn't reachable right now — please try again.");
         this.handlers.onEnd?.();
         return;
       }
@@ -128,7 +128,7 @@ export class AgentGatewayClient {
         // Already handled by the timeout handler above.
         return;
       }
-      this.handlers.onError?.("Failed to reach agent gateway");
+      this.handlers.onError?.("Couldn't reach the assistant — please try again in a moment.");
       this.handlers.onEnd?.();
     }
   }

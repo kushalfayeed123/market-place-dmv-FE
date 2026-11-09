@@ -87,5 +87,7 @@ export function cleanAgentText(s: string): string {
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\*\*$/, "")
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
-    .replace(/^\s*[-*]\s+/gm, "• ");
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

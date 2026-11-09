@@ -743,7 +743,7 @@ export default function App() {
     // If every CartSummary was deduped but we still have text, keep the text.
     // If everything was deduped with no text, don't add a blank message.
     if (error && error !== text) batch.push({ content: error });
-    if (!batch.length) batch.push({ content: "I didn't get a response. Please try again." });
+    if (!batch.length) batch.push({ content: "I didn't quite catch a response — mind trying again?" });
 
     const msgs = batch.map(
       (m) =>
@@ -794,7 +794,7 @@ export default function App() {
     // Never leave the UI locked if a stream stalls.
     const watchdog = window.setInterval(() => {
       if (activeRef.current && Date.now() - lastEventRef.current > 60_000) {
-        errorRef.current = errorRef.current ?? "The agent took too long to respond. Please try again.";
+        errorRef.current = errorRef.current ?? "That's taking longer than usual — please try again.";
         finishTurn();
       }
     }, 5000);
@@ -812,7 +812,7 @@ export default function App() {
     if (busyRef.current) return; // locked while the agent is responding
     if (!agentGateway.isConnected()) {
       settleCart("clear");
-      pushChat({ role: "agent", content: "The assistant is offline right now. Please try again shortly." });
+      pushChat({ role: "agent", content: "The assistant isn't reachable right now — please try again in a moment." });
       return;
     }
     cartIntentRef.current = !!opts?.cart;
