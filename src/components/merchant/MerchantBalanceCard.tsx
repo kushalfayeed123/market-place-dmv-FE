@@ -17,7 +17,7 @@ export function MerchantBalanceCard({ merchant_name, available_balance, pending_
       <div className="bg-[var(--color-sidebar)] px-5 py-5 text-white">
         <p className="text-xs text-white/50 uppercase tracking-wider mb-1">Merchant Balance</p>
         <p className="font-[var(--font-display)] text-sm text-white/70 mb-3">{merchant_name}</p>
-        <div className="text-4xl font-[var(--font-mono)] font-bold">
+        <div className="text-3xl sm:text-4xl font-[var(--font-mono)] font-bold break-all">
           {fmt(available_balance.amount, available_balance.currency)}
         </div>
         <p className="text-xs text-white/50 mt-1">Available for withdrawal</p>
@@ -29,21 +29,21 @@ export function MerchantBalanceCard({ merchant_name, available_balance, pending_
           { label: "Total Earned", value: fmt(total_earned.amount, total_earned.currency), icon: <TrendingUp size={13} />, color: "text-[var(--color-success-fg)]" },
           { label: "Last Payout", value: fmt(last_payout.amount, last_payout.currency), icon: <Banknote size={13} />, color: "text-[var(--color-primary)]" },
         ].map((stat) => (
-          <div key={stat.label} className="px-4 py-4 text-center">
+          <div key={stat.label} className="px-2 py-4 text-center sm:px-4">
             <div className={`flex items-center justify-center gap-1 text-[10px] font-semibold uppercase tracking-wide mb-1 ${stat.color}`}>
               {stat.icon}{stat.label}
             </div>
-            <div className="font-[var(--font-mono)] font-semibold text-sm text-[var(--color-foreground)]">{stat.value}</div>
+            <div className="font-[var(--font-mono)] font-semibold text-xs sm:text-sm text-[var(--color-foreground)] break-all">{stat.value}</div>
           </div>
         ))}
       </div>
 
-      <div className="px-5 py-4 flex items-center justify-between">
+      <div className="px-5 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
-          <CalendarCheck size={14} className="text-[var(--color-success-fg)]" />
+          <CalendarCheck size={14} className="shrink-0 text-[var(--color-success-fg)]" />
           Next payout: <span className="font-medium text-[var(--color-foreground)]">{new Date(next_payout_date).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</span>
         </div>
-        <button className="px-4 py-2 bg-[var(--color-success)] text-white rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity">
+        <button className="self-start sm:self-auto px-4 py-2 bg-[var(--color-success)] text-white rounded-lg text-sm font-semibold hover:opacity-90 transition-opacity">
           Request Payout
         </button>
       </div>

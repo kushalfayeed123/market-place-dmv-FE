@@ -84,14 +84,14 @@ function Hero({ onEnter }: { onEnter: () => void }) {
       <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] rounded-full bg-[var(--color-agent)]/15 blur-[100px] pointer-events-none" />
 
       <div className="relative max-w-7xl mx-auto px-5 sm:px-8 pt-28 pb-20 w-full">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
           {/* Left */}
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--color-primary)]/20 border border-[var(--color-primary)]/30 text-blue-300 text-xs font-semibold mb-6">
               <Bot size={12} />
               Nigeria's first AI-native marketplace
             </div>
-            <h1 className="font-[var(--font-display)] text-5xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.05] tracking-tight mb-6">
+            <h1 className="font-[var(--font-display)] text-4xl sm:text-6xl lg:text-7xl font-bold text-white leading-[1.05] tracking-tight mb-6">
               Buy and sell<br />
               <span className="italic font-light text-[var(--color-accent)]">smarter,</span><br />
               not harder.
@@ -295,7 +295,7 @@ function Features() {
   ];
 
   return (
-    <section id="features" className="py-24 bg-[var(--color-bg)]">
+    <section id="features" className="py-16 sm:py-24 bg-[var(--color-bg)]">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
         <div className="text-center mb-14">
           <span className="text-xs font-semibold uppercase tracking-widest text-[var(--color-primary)] mb-3 block">Everything you need</span>
@@ -347,7 +347,7 @@ function HowItWorks() {
   const steps = tab === "buyer" ? buyerSteps : merchantSteps;
 
   return (
-    <section id="how-it-works" className="py-24 bg-[var(--color-sidebar)] relative overflow-hidden">
+    <section id="how-it-works" className="py-16 sm:py-24 bg-[var(--color-sidebar)] relative overflow-hidden">
       <div className="absolute inset-0 opacity-[0.03]"
         style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "32px 32px" }} />
 
@@ -404,9 +404,9 @@ function ForBuyers({ onEnter }: { onEnter: () => void }) {
   ];
 
   return (
-    <section className="py-24 bg-white">
+    <section className="py-16 sm:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
           {/* Image */}
           <div className="relative">
             <div className="aspect-[4/3] rounded-3xl overflow-hidden bg-gray-100">
@@ -469,9 +469,9 @@ function ForMerchants({ onEnter }: { onEnter: () => void }) {
   ];
 
   return (
-    <section id="for-merchants" className="py-24 bg-[var(--color-surface-2)]">
+    <section id="for-merchants" className="py-16 sm:py-24 bg-[var(--color-surface-2)]">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
-        <div className="grid lg:grid-cols-2 gap-16 items-center">
+        <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
           {/* Copy */}
           <div>
             <span className="text-xs font-semibold uppercase tracking-widest text-[var(--color-accent)] mb-3 block">For merchants</span>
@@ -536,7 +536,7 @@ function Categories({ onEnter }: { onEnter: () => void }) {
   ];
 
   return (
-    <section className="py-20 bg-white">
+    <section className="py-16 sm:py-20 bg-white">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
         <div className="flex items-end justify-between mb-10">
           <div>
@@ -568,7 +568,7 @@ function Categories({ onEnter }: { onEnter: () => void }) {
 // ─── Pricing / Fees ─────────────────────────────────────────
 function Pricing({ onEnter }: { onEnter: () => void }) {
   return (
-    <section id="pricing" className="py-24 bg-[var(--color-bg)]">
+    <section id="pricing" className="py-16 sm:py-24 bg-[var(--color-bg)]">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
         <div className="text-center mb-14">
           <span className="text-xs font-semibold uppercase tracking-widest text-[var(--color-primary)] mb-3 block">Transparent pricing</span>
@@ -731,7 +731,7 @@ function Testimonials() {
   ];
 
   return (
-    <section className="py-24 bg-white">
+    <section className="py-16 sm:py-24 bg-white">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
         <div className="text-center mb-14">
           <span className="text-xs font-semibold uppercase tracking-widest text-[var(--color-primary)] mb-3 block">What people say</span>
@@ -781,7 +781,7 @@ function TrustSection() {
   ];
 
   return (
-    <section className="py-24 bg-[var(--color-sidebar)]">
+    <section className="py-16 sm:py-24 bg-[var(--color-sidebar)]">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
         <div className="text-center mb-14">
           <span className="text-xs font-semibold uppercase tracking-widest text-white/40 mb-3 block">Safe & secure</span>
@@ -825,7 +825,7 @@ function FAQ() {
   ];
 
   return (
-    <section id="faq" className="py-24 bg-white">
+    <section id="faq" className="py-16 sm:py-24 bg-white">
       <div className="max-w-3xl mx-auto px-5 sm:px-8">
         <div className="text-center mb-14">
           <span className="text-xs font-semibold uppercase tracking-widest text-[var(--color-primary)] mb-3 block">Common questions</span>
@@ -860,9 +860,9 @@ function FAQ() {
 // ─── CTA Banner ──────────────────────────────────────────────
 function CTABanner({ onEnter }: { onEnter: () => void }) {
   return (
-    <section className="py-24 bg-[var(--color-bg)]">
+    <section className="py-16 sm:py-24 bg-[var(--color-bg)]">
       <div className="max-w-7xl mx-auto px-5 sm:px-8">
-        <div className="relative bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-sidebar)] rounded-3xl overflow-hidden px-10 py-16 text-center">
+        <div className="relative bg-gradient-to-br from-[var(--color-primary)] to-[var(--color-sidebar)] rounded-3xl overflow-hidden px-6 py-12 sm:px-10 sm:py-16 text-center">
           <div className="absolute inset-0 opacity-10"
             style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "28px 28px" }} />
           <div className="absolute top-0 right-0 w-96 h-96 bg-[var(--color-agent)]/30 rounded-full blur-[100px] pointer-events-none" />

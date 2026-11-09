@@ -65,7 +65,7 @@ export function MerchantNavHeader({
           className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-muted)] hover:bg-[var(--color-border)]"
         >
           <RefreshCw size={12} />
-          Refresh
+          <span className="hidden sm:inline">Refresh</span>
         </button>
 
         <button

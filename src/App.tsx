@@ -1185,7 +1185,7 @@ export default function App() {
     <div className="min-h-screen bg-[var(--color-bg)] text-[var(--color-foreground)]">
       {/* Header: brand + nav (no duplicate search bar) */}
       <header className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b border-[var(--color-border)]">
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 h-16 flex items-center gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center gap-2 sm:gap-4">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-[var(--color-primary)] flex items-center justify-center">
               <Store size={16} className="text-white" />
@@ -1243,10 +1243,11 @@ export default function App() {
             {isAuthenticated && (user?.role === "merchant_owner" || user?.role === "merchant_staff") && (
               <a
                 href="/merchant/dashboard"
+                aria-label="Merchant Dashboard"
                 className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-foreground)] hover:text-[var(--color-primary)] transition-colors"
               >
                 <LayoutDashboard size={14} />
-                Merchant Dashboard
+                <span className="hidden sm:inline">Merchant Dashboard</span>
               </a>
             )}
             {isAuthenticated ? (
@@ -1255,7 +1256,7 @@ export default function App() {
                 className="flex items-center gap-1.5 text-xs text-[var(--color-foreground)] hover:text-[var(--color-primary)]"
               >
                 <LogOut size={14} />{" "}
-                <span>{user?.first_name ?? "Account"}</span>
+                <span className="max-w-[90px] truncate">{user?.first_name ?? "Account"}</span>
               </button>
             ) : (
               <a

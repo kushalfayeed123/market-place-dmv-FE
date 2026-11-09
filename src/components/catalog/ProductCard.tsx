@@ -125,7 +125,7 @@ export function ProductCard({
           </p>
         )}
 
-        <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-2">
           <span className="font-[var(--font-mono)] text-base font-semibold text-[var(--color-foreground)]">
             {formatMoney(product.price.amount, product.price.currency)}
           </span>

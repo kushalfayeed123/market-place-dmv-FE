@@ -46,11 +46,30 @@
   --shadow: var(--shadow-md);
 }
 
+html {
+  /* Keep iOS from inflating text in landscape and stop decorative
+     absolutely-positioned elements from causing horizontal scroll. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: clip;
+}
+
 html,
 body {
   background: var(--color-bg);
   color: var(--color-foreground);
   font-family: var(--font-display);
+  overflow-x: clip;
+}
+
+/* iOS Safari auto-zooms the page when a focused input is under 16px;
+   force 16px on small screens so forms stay put while typing. */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* Smooth reveal for results that appear after the agent finishes its reply. */

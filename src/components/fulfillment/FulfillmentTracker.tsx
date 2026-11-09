@@ -28,7 +28,7 @@ export function FulfillmentTracker({ order }: { order: { id: string; order_numbe
         <p className="text-xs text-[var(--color-muted)] mt-0.5">{order.order_number} · {order.merchant_name}</p>
       </div>
 
-      <div className="px-6 py-6">
+      <div className="px-4 py-6 sm:px-6">
         <div className="relative">
           <div className="absolute top-4 left-4 right-4 h-0.5 bg-[var(--color-border)]" />
           <div
@@ -40,8 +40,8 @@ export function FulfillmentTracker({ order }: { order: { id: string; order_numbe
               const done = i <= currentStep;
               const active = i === currentStep;
               return (
-                <div key={step.key} className="flex flex-col items-center gap-2 w-16">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center z-10 transition-colors ${done ? "bg-[var(--color-primary)] text-white" : "bg-white border-2 border-[var(--color-border)] text-[var(--color-muted)]"} ${active ? "ring-4 ring-[var(--color-primary)]/20" : ""}`}>
+                <div key={step.key} className="flex min-w-0 flex-1 flex-col items-center gap-1 sm:gap-2">
+                  <div className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center z-10 transition-colors ${done ? "bg-[var(--color-primary)] text-white" : "bg-white border-2 border-[var(--color-border)] text-[var(--color-muted)]"} ${active ? "ring-4 ring-[var(--color-primary)]/20" : ""}`}>
                     {step.icon}
                   </div>
                   <span className={`text-[10px] font-medium text-center leading-tight ${done ? "text-[var(--color-primary)]" : "text-[var(--color-muted)]"}`}>

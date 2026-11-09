@@ -496,7 +496,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
   }
   if (loadError || (isEdit && !product)) {
     return (
-      <div className="mx-auto w-full max-w-3xl py-10">
+      <div className="mx-auto w-full max-w-3xl px-4 py-10 sm:px-0">
         <Notice tone={loadError ? "error" : "warning"}>{loadError ?? "Product not found."}</Notice>
         <Link href={PRODUCTS_URL} className="mt-4 inline-flex items-center gap-1 text-sm text-[var(--color-primary)] hover:underline">
           <ChevronLeft size={14} /> Back to products
@@ -510,7 +510,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
   const inputErr = (k: keyof FormValues) => (errors[k] ? true : undefined);
 
   return (
-    <div className="mx-auto w-full max-w-3xl pb-6">
+    <div className="mx-auto w-full max-w-3xl px-4 pb-6 sm:px-0">
       <Link href={PRODUCTS_URL} className="mb-4 inline-flex h-9 items-center gap-1 text-sm text-[var(--color-muted)] hover:text-[var(--color-foreground)]">
         <ChevronLeft size={15} /> Back to products
       </Link>
