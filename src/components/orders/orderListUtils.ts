@@ -32,6 +32,36 @@ export function formatOrderStatus(status: string): string {
     .join(" ");
 }
 
+/**
+ * Calm, human buyer-facing note for an order status transition, shown in the
+ * chat transcript when the merchant/payment side moves the order forward.
+ * Returns null for statuses that need no note.
+ */
+export function orderStatusNote(status: string): string | null {
+  switch (status.trim().toLowerCase()) {
+    case "paid":
+      return "Payment confirmed — thank you! The merchant has been notified.";
+    case "accepted":
+      return "The merchant accepted your order and is preparing it.";
+    case "awaiting_approval":
+      return "Your pay-on-delivery order is placed. The merchant will confirm payment after delivery.";
+    case "shipped":
+    case "in_transit":
+      return "Your order is on its way.";
+    case "out_for_delivery":
+      return "Your order is out for delivery today.";
+    case "fulfilled":
+    case "delivered":
+      return "Your order has been delivered. Enjoy!";
+    case "cancelled":
+      return "Your order was cancelled.";
+    case "refunded":
+      return "Your order was refunded.";
+    default:
+      return null;
+  }
+}
+
 export function normalizeOrderListItem(value: unknown): Order | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const raw = value as Record<string, unknown>;

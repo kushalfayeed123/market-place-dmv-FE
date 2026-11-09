@@ -646,9 +646,12 @@ export const apiClient = {
   /// GET /payments/methods — list available payment providers.
   /// Providers that are not yet implemented appear with implemented=false
   /// so the frontend can render them as disabled.
-  getPaymentMethods(currency?: string) {
+  /// `fulfillment` ("delivery"/"pickup"/"digital"/"service") controls whether
+  /// physical-only methods such as Pay on Delivery are included.
+  getPaymentMethods(currency?: string, fulfillment?: string) {
     const q = new URLSearchParams();
     if (currency) q.set("currency", currency);
+    if (fulfillment) q.set("fulfillment", fulfillment);
     const qs = q.toString();
     return raw<
       Array<{

@@ -40,9 +40,9 @@ export type ProductDetailDirectiveProps = Product &
 
 /** Payment method selection directive — rendered when asking the buyer how to pay. */
 export interface PaymentSelectionDirectiveProps {
-  /** Available payment methods. */
+  /** Available payment methods — keys come from the backend (GET /payments/methods), not hardcoded. */
   methods: Array<{
-    key: "paystack" | "pay_on_delivery";
+    key: string;
     label: string;
     description: string;
   }>;

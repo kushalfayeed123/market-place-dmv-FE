@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { formatOrderStatus, normalizeOrderListItem } from "./orderListUtils";
+import { formatOrderStatus, normalizeOrderListItem, orderStatusNote } from "./orderListUtils";
+
+describe("orderStatusNote", () => {
+  it("gives a calm note for buyer-visible milestones", () => {
+    expect(orderStatusNote("paid")).toMatch(/payment confirmed/i);
+    expect(orderStatusNote("accepted")).toMatch(/accepted/i);
+    expect(orderStatusNote("awaiting_approval")).toMatch(/pay-on-delivery/i);
+    expect(orderStatusNote("shipped")).toMatch(/on its way/i);
+    expect(orderStatusNote("delivered")).toMatch(/delivered/i);
+    expect(orderStatusNote("fulfilled")).toMatch(/delivered/i);
+  });
+
+  it("returns null for statuses that need no note", () => {
+    expect(orderStatusNote("pending")).toBeNull();
+    expect(orderStatusNote("")).toBeNull();
+  });
+});
 
 describe("normalizeOrderListItem", () => {
   it("normalizes the backend order response shape", () => {

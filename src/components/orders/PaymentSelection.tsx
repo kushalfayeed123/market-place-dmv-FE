@@ -6,7 +6,8 @@ import { resolvePaymentCta } from "./paymentCta";
 export type PaymentMethodKey = "paystack" | "pay_on_delivery";
 
 export type PaymentMethod = {
-  key: PaymentMethodKey;
+  /** Any provider key advertised by GET /payments/methods — not limited to the two known keys. */
+  key: string;
   label: string;
   description: string;
 };
@@ -27,6 +28,12 @@ export interface PaymentSelectionProps {
    * is not rendered.
    */
   onPayOnDelivery?: () => void;
+  /**
+   * Generic fallback fired for any other advertised method key when the buyer
+   * taps the CTA — the chosen method key is passed through, so payment is
+   * never hardcoded to a single provider.
+   */
+  onConfirm?: (method: string) => void;
   /** True while the payment request is in flight — disables the CTAs and shows a spinner. */
   loading?: boolean;
   /** Error from the last payment attempt, shown under the CTA. */
@@ -77,13 +84,21 @@ export function PaymentSelection({
   onSelect,
   onPayNow,
   onPayOnDelivery,
+  onConfirm,
   loading = false,
   error = null,
 }: PaymentSelectionProps) {
   // The CTA only appears when a method is selected AND the caller supplied
   // the matching callback (e.g. no order_id yet -> no handler -> no CTA).
-  const cta = resolvePaymentCta(selected, { onPayNow, onPayOnDelivery });
-  const onPay = cta?.kind === "paystack" ? onPayNow : cta ? onPayOnDelivery : undefined;
+  const cta = resolvePaymentCta(selected, { onPayNow, onPayOnDelivery, onConfirm });
+  const onPay =
+    cta?.kind === "paystack"
+      ? onPayNow
+      : cta?.kind === "pay_on_delivery"
+        ? onPayOnDelivery
+        : cta && selected
+          ? () => onConfirm?.(selected)
+          : undefined;
 
   return (
     <div className="bg-white rounded-xl border border-[var(--color-border)] shadow-[var(--shadow)] overflow-hidden">

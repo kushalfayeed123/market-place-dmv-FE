@@ -61,11 +61,16 @@ export function CartSummary({
   const [drafts, setDrafts] = useState<Record<string, number>>({});
   useEffect(() => setDrafts({}), [serverKey]);
 
+  const currency = subtotal.currency;
+
   if (is_empty || items.length === 0) {
     return (
       <div className="rounded-2xl border border-[var(--color-border)] bg-white p-8 text-center">
         <ShoppingBag size={40} className="mx-auto mb-3 text-slate-200" />
         <p className="text-sm text-[var(--color-muted)]">Your cart is empty</p>
+        <p className="mt-1 font-[var(--font-mono)] text-xs font-medium text-[var(--color-muted)]">
+          0 items · {formatMoney(0, currency)}
+        </p>
       </div>
     );
   }
@@ -83,7 +88,6 @@ export function CartSummary({
     .filter((i) => qtyOf(i) !== i.quantity)
     .map((i) => ({ variant_id: i.variant_id, product_id: i.product_id, product_name: i.product_name, quantity: qtyOf(i) }));
   const dirty = changes.length > 0;
-  const currency = subtotal.currency;
   const draftSubtotal = items.reduce((s, i) => s + i.unit_price.amount * qtyOf(i), 0);
   const added = highlight_product_id ? items.find((i) => i.product_id === highlight_product_id) : undefined;
   const stepBtn =

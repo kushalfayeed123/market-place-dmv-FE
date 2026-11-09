@@ -53,6 +53,7 @@ import type {
   OrderSuccessDirectiveProps,
 } from "./components/catalog/directives";
 import type { Order } from "./components/orders/OrderList";
+import { orderStatusNote } from "./components/orders/orderListUtils";
 import type { CartSummaryProps, CartChange } from "./components/cart/CartSummary";
 import type { LedgerEntry } from "./components/merchant/LedgerTable";
 import type { UiDirective, CanvasMessage } from "./types/components";
@@ -107,11 +108,14 @@ function RenderDirective({
   onAction,
   cartState,
   readOnly,
+  currentOrderId,
 }: {
   directive: UiDirective;
   onAction?: ActionHandler;
   cartState?: CartState;
   readOnly?: boolean;
+  /** Order currently being checked out, so PaymentSelection CTAs can attach to it. */
+  currentOrderId?: string;
 }) {
   const props = directive.props;
   const addToCart = (p: Product, quantity = 1) =>
@@ -272,9 +276,9 @@ function RenderDirective({
       onSelect?: (m: string) => void;
       order_id?: string;
     };
-    // Pay CTAs only render when the directive carries the order to pay for;
-    // they reuse the same process_payment action as PaymentCapturePanel.
-    const orderId = typeof p.order_id === "string" ? p.order_id : undefined;
+    // Pay CTAs only render when an order is known — from the directive or from
+    // the in-flight checkout panel — and they dispatch the buyer's chosen method.
+    const orderId = typeof p.order_id === "string" ? p.order_id : currentOrderId;
     return (
       <PaymentSelection
         methods={Array.isArray(p.methods) ? p.methods : []}
@@ -285,12 +289,17 @@ function RenderDirective({
         }}
         onPayNow={
           orderId
-            ? () => onAction?.("process_payment", { order_id: orderId })
+            ? () => onAction?.("process_payment", { order_id: orderId, provider: "paystack" })
             : undefined
         }
         onPayOnDelivery={
           orderId
             ? () => onAction?.("process_payment", { order_id: orderId, provider: "pay_on_delivery" })
+            : undefined
+        }
+        onConfirm={
+          orderId
+            ? (m: string) => onAction?.("process_payment", { order_id: orderId, provider: m })
             : undefined
         }
       />
@@ -436,6 +445,10 @@ export default function App() {
   const [checkoutStatusError, setCheckoutStatusError] = useState<string | null>(null);
   const [paymentPaying, setPaymentPaying] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  // Payment methods advertised by the backend for the pending order — the
+  // buyer picks one; nothing is hardcoded to a single provider.
+  const [paymentMethods, setPaymentMethods] = useState<Array<{ key: string; label: string; description: string }> | null>(null);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string | null>(null);
   const pendingCheckout = useRef<{
     items: Array<{ variant_id: string; quantity: number }>;
     fulfillment: CheckoutFulfillment;
@@ -574,10 +587,9 @@ export default function App() {
     const paymentStatus = pending?.payment?.status;
     if (!pending || !orderId || !paymentStatus || paymentStatus === "failed") return;
     const activeOrderId = orderId;
-    if (
-      ["cancelled", "refunded", "shipped", "fulfilled"].includes(checkoutOrderStatus ?? "") ||
-      (checkoutOrderStatus === "accepted" && paymentStatus === "success")
-    ) return;
+    // Keep polling until the order is truly finished — the buyer must still
+    // hear about merchant acceptance, shipping and delivery confirmation.
+    if (["cancelled", "refunded", "fulfilled", "delivered"].includes(checkoutOrderStatus ?? "")) return;
     let cancelled = false;
     let inFlight = false;
 
@@ -649,6 +661,59 @@ export default function App() {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [checkoutPending?.order_id, checkoutPending?.payment?.status, checkoutOrderStatus]);
+
+  // Notify the buyer in the chat when the order moves forward (merchant
+  // confirmed payment, accepted, shipped, delivered…) — even if the modal is
+  // closed. One note per status per order.
+  const notifiedOrderRef = useRef<{ orderId: string | null; statuses: Set<string> }>({
+    orderId: null,
+    statuses: new Set(),
+  });
+  useEffect(() => {
+    if (!checkoutPending || !checkoutOrderStatus) return;
+    if (notifiedOrderRef.current.orderId !== checkoutPending.order_id) {
+      notifiedOrderRef.current = { orderId: checkoutPending.order_id, statuses: new Set() };
+    }
+    const seen = notifiedOrderRef.current.statuses;
+    if (seen.has(checkoutOrderStatus)) return;
+    const note = orderStatusNote(checkoutOrderStatus);
+    if (!note) return;
+    seen.add(checkoutOrderStatus);
+    pushChat({ role: "agent", content: note });
+  }, [checkoutOrderStatus, checkoutPending?.order_id]);
+
+  // Load the payment methods the backend offers for THIS order (currency +
+  // fulfillment aware — e.g. Pay on Delivery only for physical/delivery orders)
+  // whenever a checkout is pending. The buyer chooses; we never assume one.
+  useEffect(() => {
+    if (!checkoutPending) return;
+    let cancelled = false;
+    setPaymentMethods(null);
+    setSelectedPaymentMethod(null);
+    apiClient
+      .getPaymentMethods(checkoutPending.currency, checkoutPending.fulfillment)
+      .then((methods) => {
+        if (cancelled) return;
+        const selectable = methods
+          .filter((m) => m.implemented)
+          .map((m) => ({
+            key: m.key,
+            label: m.name,
+            description:
+              m.key === "pay_on_delivery"
+                ? "Pay when your order is delivered — the merchant confirms payment after delivery."
+                : "Pay securely online.",
+          }));
+        setPaymentMethods(selectable);
+        if (selectable.length > 0) setSelectedPaymentMethod((prev) => prev ?? selectable[0].key);
+      })
+      .catch(() => {
+        if (!cancelled) setPaymentMethods([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [checkoutPending?.order_id, checkoutPending?.currency, checkoutPending?.fulfillment]);
 
   const browseProductGroups = groupCatalogProducts(browseProducts);
 
@@ -1013,8 +1078,20 @@ export default function App() {
       return;
     }
     if (checkoutPending) {
-      setCheckoutPanelOpen(true);
-      return;
+      // A previous order that already completed (paid/accepted/delivered/…)
+      // must not resurface its modal when a NEW order starts — reset the whole
+      // session first. Only genuinely in-progress checkouts are resumed.
+      const previousDone =
+        checkoutPending.payment?.status === "success" ||
+        ["accepted", "fulfilled", "delivered", "cancelled", "refunded"].includes(
+          checkoutOrderStatus ?? "",
+        );
+      if (previousDone) {
+        resetCheckoutSession();
+      } else {
+        setCheckoutPanelOpen(true);
+        return;
+      }
     }
     if (checkoutSubmitting) return;
     const retryCheckout = pendingCheckout.current;
@@ -1080,9 +1157,52 @@ export default function App() {
     }
   }
 
-  async function handleDirectPayment() {
+  /** Reset the entire checkout session (modal, payment, order status, pending refs). */
+  function resetCheckoutSession() {
+    setCheckoutPending(null);
+    setCheckoutPanelOpen(false);
+    setCheckoutOrderStatus(null);
+    setCheckoutStatusError(null);
+    setPaymentError(null);
+    setStatusText(null);
+    setPaymentMethods(null);
+    setSelectedPaymentMethod(null);
+    setPaymentPaying(false);
+    pendingCheckout.current = null;
+    paymentIdempotencyKey.current = null;
+  }
+
+  /**
+   * Clear the cart after the buyer confirmed the order and payment mode:
+   * reset the header badge to 0, post an empty CartSummary so the UI shows
+   * "0 items · ₦0.00", and clear the agent session cart server-side.
+   */
+  function clearCartUi(currency = "NGN") {
+    setCartCount(0);
+    setCartState({});
+    pushChat({
+      content: "All done — your order is confirmed and your cart has been cleared.",
+      directive: {
+        type: "ui_directive",
+        version: 1,
+        component: "CartSummary",
+        props: {
+          items: [],
+          subtotal: { amount: 0, currency },
+          item_count: 0,
+          currency,
+          is_empty: true,
+          warnings: [],
+        },
+        correlation_id: `cart-cleared-${chatIdRef.current + 1}`,
+      } as UiDirective,
+    });
+    void agentGateway.clearCart();
+  }
+
+  async function handleDirectPayment(provider = "paystack") {
     if (!checkoutPending || paymentPaying) return;
-    if (checkoutPending.payment?.payment_url) {
+    if (checkoutPending.payment?.payment_url && provider !== "pay_on_delivery") {
       window.open(checkoutPending.payment.payment_url, "_blank", "noopener,noreferrer");
       return;
     }
@@ -1100,18 +1220,22 @@ export default function App() {
       }
       const response = await apiClient.processPayment(
         checkoutPending.order_id,
-        "paystack",
+        provider,
         paymentIdempotencyKey.current.key,
       );
-      if (!response.payment_url) {
-        throw new Error("The payment provider did not return a payment link. Your order is safe; retry payment or contact support.");
-      }
       setCheckoutPending((current) =>
         current?.order_id === checkoutPending.order_id
           ? { ...current, payment: response }
           : current,
       );
-      window.open(response.payment_url, "_blank", "noopener,noreferrer");
+      // The order and payment mode are now confirmed — the cart has been
+      // converted into an order, so clear it (badge shows 0, session cart too).
+      clearCartUi(checkoutPending.currency);
+      // Online providers return a payment_url to open; pay_on_delivery returns
+      // none — the order simply moves to awaiting_approval.
+      if (response.payment_url) {
+        window.open(response.payment_url, "_blank", "noopener,noreferrer");
+      }
       setPaymentError(null);
       setCheckoutStatusError(null);
     } catch (error) {
@@ -1149,16 +1273,12 @@ export default function App() {
       }
       return createAgentOrder(data as DeliveryAddress);
     } else if (action === "process_payment") {
-      const d = data as { order_id?: string };
+      const d = data as { order_id?: string; provider?: string };
       if (d?.order_id && d.order_id !== checkoutPending?.order_id) return;
-      return handleDirectPayment();
+      // Use the provider the buyer selected in PaymentSelection — never assume one.
+      return handleDirectPayment(typeof d?.provider === "string" && d.provider ? d.provider : "paystack");
     } else if (action === "close_order_success") {
-      setCheckoutPending(null);
-      setCheckoutOrderStatus(null);
-      setCheckoutStatusError(null);
-      setPaymentError(null);
-      setStatusText(null);
-      pendingCheckout.current = null;
+      resetCheckoutSession();
     } else if (action === "track_order") {
       // directive already rendered in chat
     } else if (action === "confirm") {
@@ -1219,12 +1339,12 @@ export default function App() {
               type="button"
               onClick={() => sendToAgent("Show my cart", undefined, { cart: true })}
               disabled={searching}
-              aria-label={cartCount ? `Cart, ${cartCount} items` : "Cart"}
+              aria-label={`Cart, ${cartCount ?? 0} items`}
               className="flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
             >
               <ShoppingBag size={18} />
               <span className="hidden sm:inline">Cart</span>
-              {!!cartCount && (
+              {cartCount !== null && (
                 <span className="min-w-[20px] rounded-full bg-[var(--color-primary)] px-1.5 text-center text-[11px] font-semibold leading-5 text-white">
                   {cartCount}
                 </span>
@@ -1281,7 +1401,7 @@ export default function App() {
           statusText={statusText}
           pendingKinds={pendingKinds}
           renderDirective={(d, meta) => (
-            <RenderDirective directive={d} onAction={handleAction} cartState={cartState} readOnly={!meta.isLatest} />
+          <RenderDirective directive={d} onAction={handleAction} cartState={cartState} readOnly={!meta.isLatest} currentOrderId={checkoutPending?.order_id} />
           )}
         />
 
@@ -1419,10 +1539,21 @@ export default function App() {
                 Payment failed. Retry securely; your order remains available and will not be duplicated.
               </p>
             ) : checkoutPending.payment ? (
-              <div className="rounded-lg border border-[var(--color-warning-fg)]/20 bg-[var(--color-warning-bg)]/20 p-4 text-sm">
-                <p className="font-medium">Payment is {checkoutPending.payment.status}.</p>
-                <p className="mt-1 text-[var(--color-muted)]">Complete payment in the provider window. We’re checking for confirmation automatically.</p>
-              </div>
+              checkoutPending.payment.provider === "pay_on_delivery" ||
+              checkoutPending.payment.payment_method === "pay_on_delivery" ? (
+                <div className="rounded-lg border border-[var(--color-primary)]/25 bg-[var(--color-primary-soft)] p-4 text-sm">
+                  <p className="font-medium text-[var(--color-foreground)]">Pay on Delivery selected.</p>
+                  <p className="mt-1 text-[var(--color-muted)]">
+                    Your order is placed and awaiting merchant confirmation. The merchant will
+                    confirm payment after your delivery arrives.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-[var(--color-warning-fg)]/20 bg-[var(--color-warning-bg)]/20 p-4 text-sm">
+                  <p className="font-medium">Payment is {checkoutPending.payment.status}.</p>
+                  <p className="mt-1 text-[var(--color-muted)]">Complete payment in the provider window. We’re checking for confirmation automatically.</p>
+                </div>
+              )
             ) : (
               <p className="text-sm text-[var(--color-muted)]">
                 Secure payment is required before the merchant can process this order.
@@ -1441,14 +1572,26 @@ export default function App() {
             )}
 
             {!checkoutPending.payment || checkoutPending.payment.status === "failed" ? (
-              <button
-                type="button"
-                onClick={() => void handleDirectPayment()}
-                disabled={paymentPaying}
-                className="w-full rounded-xl bg-[var(--color-primary)] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
-              >
-                {paymentPaying ? "Starting secure payment…" : checkoutPending.payment?.status === "failed" ? "Retry payment" : "Pay securely with Paystack"}
-              </button>
+              paymentMethods && paymentMethods.length > 0 ? (
+                <PaymentSelection
+                  methods={paymentMethods}
+                  selected={selectedPaymentMethod}
+                  onSelect={setSelectedPaymentMethod}
+                  loading={paymentPaying}
+                  onPayNow={() => void handleDirectPayment("paystack")}
+                  onPayOnDelivery={() => void handleDirectPayment("pay_on_delivery")}
+                  onConfirm={(m) => void handleDirectPayment(m)}
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void handleDirectPayment()}
+                  disabled={paymentPaying}
+                  className="w-full rounded-xl bg-[var(--color-primary)] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-50"
+                >
+                  {paymentPaying ? "Starting payment…" : checkoutPending.payment?.status === "failed" ? "Retry payment" : "Pay securely"}
+                </button>
+              )
             ) : null}
 
             {paymentError && <p role="alert" className="text-sm text-[var(--color-danger-fg)]">{paymentError}</p>}
@@ -1464,19 +1607,21 @@ export default function App() {
                   Your order is accepted. Follow its status in your order updates while the merchant completes fulfillment.
                 </p>
               )}
+            {["shipped", "in_transit", "out_for_delivery"].includes(checkoutOrderStatus ?? "") && (
+              <p className="rounded-lg bg-[var(--color-primary-soft)] p-3 text-sm text-[var(--color-primary)]">
+                Good news — your order is on its way (status: {checkoutOrderStatus}).
+              </p>
+            )}
+            {["fulfilled", "delivered"].includes(checkoutOrderStatus ?? "") && (
+              <p className="rounded-lg bg-[var(--color-success-bg)]/20 p-3 text-sm text-[var(--color-success-fg)]">
+                Your order has been delivered. Enjoy!
+              </p>
+            )}
             <div className="flex justify-end">
               {checkoutOrderStatus === "accepted" && checkoutPending.payment?.status === "success" && (
                 <button
                   type="button"
-                  onClick={() => {
-                    setCheckoutPending(null);
-                    setCheckoutPanelOpen(false);
-                    setCheckoutOrderStatus(null);
-                    setCheckoutStatusError(null);
-                    setPaymentError(null);
-                    pendingCheckout.current = null;
-                    paymentIdempotencyKey.current = null;
-                  }}
+                  onClick={() => resetCheckoutSession()}
                   className="mr-auto rounded-xl border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium text-[var(--color-foreground)] hover:bg-slate-50"
                 >
                   Start another order

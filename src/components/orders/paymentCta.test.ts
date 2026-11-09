@@ -34,4 +34,20 @@ describe("resolvePaymentCta", () => {
       resolvePaymentCta("bank_transfer", { onPayNow: noop, onPayOnDelivery: noop }),
     ).toBeNull();
   });
+
+  it("falls back to the generic confirm CTA for any dynamically advertised method", () => {
+    expect(
+      resolvePaymentCta("flutterwave", {
+        onPayNow: noop,
+        onPayOnDelivery: noop,
+        onConfirm: noop,
+      }),
+    ).toEqual({ kind: "confirm", label: "Confirm payment method" });
+  });
+
+  it("still prefers the specific Paystack CTA when paystack is selected", () => {
+    expect(
+      resolvePaymentCta("paystack", { onPayNow: noop, onConfirm: noop }),
+    ).toEqual({ kind: "paystack", label: "Proceed to Paystack" });
+  });
 });

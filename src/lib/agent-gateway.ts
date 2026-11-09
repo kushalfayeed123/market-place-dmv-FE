@@ -61,6 +61,23 @@ export class AgentGatewayClient {
     this.ready = true;
   }
 
+  /**
+   * Clear the agent session cart. Called after an order and its payment mode
+   * are confirmed, so a later "show my cart" returns an empty cart.
+   * Best-effort: the UI cart is cleared locally regardless of the outcome.
+   */
+  async clearCart(): Promise<void> {
+    try {
+      if (!this.sessionId || typeof window === "undefined") return;
+      await fetch(
+        `${this.baseUrl}/sessions/${encodeURIComponent(this.sessionId)}/cart/clear`,
+        { method: "POST" },
+      );
+    } catch {
+      // best effort — the local UI cart is cleared anyway
+    }
+  }
+
   disconnect() {
     this.ready = false;
   }
