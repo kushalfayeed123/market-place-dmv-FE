@@ -1,4 +1,4 @@
-import { Package, ShoppingBag, Truck, Wallet, ShieldAlert, MessageSquare, LayoutDashboard } from "lucide-react";
+import { Package, ShoppingBag, Truck, Wallet, ShieldAlert, MessageSquare, LayoutDashboard, Share2 } from "lucide-react";
 
 export type CellKind = "text" | "money" | "date" | "badge";
 export interface Column { key: string; label: string; kind?: CellKind; align?: "right" }
@@ -25,6 +25,7 @@ const qs = (q: { search: string; status: string }) => {
 
 export const SECTIONS: SectionConfig[] = [
   { key: "overview", label: "Overview", icon: LayoutDashboard, hint: "Today at a glance" },
+  { key: "share", label: "Share", icon: Share2, hint: "Links to your store and products" },
   { key: "orders", label: "Orders", icon: ShoppingBag, hint: "Fulfil and track customer orders",
     list: (m, q) => `/merchants/${m}/orders${qs(q)}`,
         statuses: ["pending", "paid", "accepted", "partially_fulfilled", "shipped", "fulfilled", "cancelled", "refunded", "awaiting_approval"],

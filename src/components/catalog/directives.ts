@@ -58,6 +58,44 @@ export interface PaymentSelectionDirectiveProps {
   order_id?: string;
 }
 
+/** Full order detail — rendered when the buyer asks about / clicks an order. */
+export interface OrderDetailDirectiveProps {
+  id: string;
+  order_number: string;
+  status: string;
+  total: { amount: number; currency: string };
+  item_count?: number;
+  created_at?: string;
+  updated_at?: string;
+  merchant_name?: string;
+  items?: Array<{
+    variant_id?: string;
+    product_id?: string;
+    product_name: string;
+    variant_name?: string;
+    quantity: number;
+    unit_price: { amount: number; currency: string };
+    line_total: { amount: number; currency: string };
+  }>;
+  subtotal?: { amount: number; currency: string };
+  payment_status?: string | null;
+  fulfillment_status?: string | null;
+  delivery_address?: Record<string, unknown> | null;
+}
+
+/**
+ * Share-link directive — rendered when a merchant generates a link to their
+ * store or a set of products. Shows the URL with a copy button.
+ */
+export interface ShareLinkDirectiveProps {
+  url: string;
+  title?: string;
+  kind?: "store" | "products";
+  code?: string;
+  product_count?: number;
+  is_active?: string;
+}
+
 /** Order success / close-out directive — rendered after purchase completes. */
 export interface OrderSuccessDirectiveProps {
   order: {

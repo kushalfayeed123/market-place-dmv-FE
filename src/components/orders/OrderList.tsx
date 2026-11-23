@@ -21,7 +21,16 @@ function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency, maximumFractionDigits: 0 }).format(amount / 100);
 }
 
-export function OrderList({ orders, onTrack }: { orders: unknown[]; onTrack?: (order: Order) => void }) {
+export function OrderList({
+  orders,
+  onTrack,
+  onView,
+}: {
+  orders: unknown[];
+  onTrack?: (order: Order) => void;
+  /** Called when the buyer taps an order row — opens the order's detail (via the agent). */
+  onView?: (order: Order) => void;
+}) {
   const normalizedOrders = orders
     .map(normalizeOrderListItem)
     .filter((order): order is Order => order !== null);
@@ -42,29 +51,49 @@ export function OrderList({ orders, onTrack }: { orders: unknown[]; onTrack?: (o
             bg: "bg-slate-100",
           };
           return (
-            <li key={order.id} className="px-5 py-4 flex items-center justify-between gap-4 hover:bg-gray-50/50 transition-colors">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-[var(--font-mono)] font-medium text-sm text-[var(--color-foreground)]">{order.order_number}</span>
-                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${s.color} ${s.bg}`}>
-                    {s.icon}{s.label}
-                  </span>
+            <li key={order.id}>
+              <div
+                role="button"
+                tabIndex={onView ? 0 : -1}
+                aria-label={`View details of order ${order.order_number}`}
+                onClick={() => onView?.(order)}
+                onKeyDown={(e) => {
+                  if (onView && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault();
+                    onView(order);
+                  }
+                }}
+                className={`px-5 py-4 w-full flex items-center justify-between gap-4 text-left transition-colors ${
+                  onView ? "cursor-pointer hover:bg-gray-50/50 focus-visible:bg-gray-50/50" : ""
+                }`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-[var(--font-mono)] font-medium text-sm text-[var(--color-foreground)]">{order.order_number}</span>
+                    <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${s.color} ${s.bg}`}>
+                      {s.icon}{s.label}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[var(--color-muted)]">{order.merchant_name} · {order.items_count} item{order.items_count !== 1 ? "s" : ""}</p>
+                  <p className="text-xs text-[var(--color-muted)] mt-0.5">{new Date(order.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</p>
                 </div>
-                <p className="text-xs text-[var(--color-muted)]">{order.merchant_name} · {order.items_count} item{order.items_count !== 1 ? "s" : ""}</p>
-                <p className="text-xs text-[var(--color-muted)] mt-0.5">{new Date(order.created_at).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</p>
-              </div>
-              <div className="flex flex-col items-end gap-2 shrink-0">
-                <span className="font-[var(--font-mono)] font-semibold text-sm text-[var(--color-foreground)]">
-                  {fmt(order.total.amount, order.total.currency)}
-                </span>
-                {order.status === "in_transit" && (
-                  <button
-                    onClick={() => onTrack?.(order)}
-                    className="text-[10px] font-semibold text-[var(--color-primary)] hover:underline"
-                  >
-                    Track →
-                  </button>
-                )}
+                <div className="flex flex-col items-end gap-2 shrink-0">
+                  <span className="font-[var(--font-mono)] font-semibold text-sm text-[var(--color-foreground)]">
+                    {fmt(order.total.amount, order.total.currency)}
+                  </span>
+                  {order.status === "in_transit" && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTrack?.(order);
+                      }}
+                      className="text-[10px] font-semibold text-[var(--color-primary)] hover:underline"
+                    >
+                      Track →
+                    </button>
+                  )}
+                </div>
               </div>
             </li>
           );

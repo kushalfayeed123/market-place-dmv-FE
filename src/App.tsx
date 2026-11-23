@@ -26,9 +26,11 @@ import {
 } from "./components/catalog/catalogProductUtils";
 import { ProductCard } from "./components/catalog/ProductCard";
 import { ProductDetail } from "./components/catalog/ProductDetail";
+import { ShareLinkCard } from "./components/catalog/ShareLinkCard";
 import { KBResultList, type KBSearchResult } from "./components/catalog/KBResultCard";
 import { CartSummary } from "./components/cart/CartSummary";
 import { OrderList } from "./components/orders/OrderList";
+import { OrderDetailView } from "./components/orders/OrderDetailView";
 import { DigitalLibrary } from "./components/orders/DigitalLibrary";
 import { DeliveryAddressForm, type DeliveryAddress } from "./components/orders/DeliveryAddressForm";
 import { OrderConfirmation } from "./components/orders/OrderConfirmation";
@@ -50,7 +52,9 @@ import type {
   ProductGridDirectiveProps,
   ProductDetailDirectiveProps,
   PaymentSelectionDirectiveProps,
+  OrderDetailDirectiveProps,
   OrderSuccessDirectiveProps,
+  ShareLinkDirectiveProps,
 } from "./components/catalog/directives";
 import type { Order } from "./components/orders/OrderList";
 import { orderStatusNote } from "./components/orders/orderListUtils";
@@ -59,7 +63,7 @@ import type { LedgerEntry } from "./components/merchant/LedgerTable";
 import type { UiDirective, CanvasMessage } from "./types/components";
 import { apiClient } from "./lib/api/client";
 import type { Product as ApiProduct, PaymentTransactionResponse } from "./lib/api/client";
-import { resolveCheckoutFulfillment, type CheckoutFulfillment } from "./lib/checkoutFlow";
+import { resolveCheckoutFulfillment, isCheckoutComplete, type CheckoutFulfillment } from "./lib/checkoutFlow";
 import { agentGateway } from "./lib/agent-gateway";
 import { cleanAgentText, dedupeDirectives } from "./lib/agent-turn";
 
@@ -228,7 +232,18 @@ function RenderDirective({
             : []
         }
         onTrack={(o) => onAction?.("track_order", o)}
-            />
+        onView={(o) => onAction?.("view_order", o)}
+      />
+    );
+  }
+  if (directive.component === "OrderDetail") {
+    const p = props as unknown as OrderDetailDirectiveProps;
+    return (
+      <OrderDetailView
+        {...p}
+        onBack={() => onAction?.("back")}
+        onTrack={() => onAction?.("track_order", p)}
+      />
     );
   }
   if (directive.component === "OrderConfirmation") {
@@ -328,17 +343,29 @@ function RenderDirective({
     );
   }
   if (directive.component === "FulfillmentTracker") {
+    // get_fulfillment_status returns a LIST of fulfillment records; the
+    // gateway wraps it as { items: [...] }. Older/direct pushes may use
+    // { order: {...} }. Support both, and let the tracker derive its step
+    // from the real fulfillment statuses when present.
+    const p = props as Record<string, unknown>;
+    const fulfillments = (Array.isArray(p.items) ? p.items : Array.isArray(p.fulfillments) ? p.fulfillments : []) as Array<{
+      status?: string | null;
+      carrier?: string | null;
+      tracking_number?: string | null;
+      delivered_at?: string | null;
+    }>;
+    const order = (p.order ?? {}) as Partial<{ id: string; order_number: string; status: string; merchant_name: string }>;
+    const first = fulfillments[0] as { order_id?: string } | undefined;
     return (
       <FulfillmentTracker
-        order={
-          props.order as {
-            id: string;
-            order_number: string;
-            status: string;
-            merchant_name: string;
-          }
-        }
-            />
+        order={{
+          id: order.id ?? first?.order_id ?? "",
+          order_number: String(order.order_number ?? p.order_number ?? "—"),
+          status: String(order.status ?? p.status ?? "pending"),
+          merchant_name: String(order.merchant_name ?? "Marketplace"),
+        }}
+        fulfillments={fulfillments}
+      />
     );
   }
   if (directive.component === "MerchantBalanceCard") {
@@ -375,6 +402,19 @@ function RenderDirective({
             />
     );
     }
+  if (directive.component === "ShareLink") {
+    const sp = props as unknown as ShareLinkDirectiveProps;
+    return (
+      <ShareLinkCard
+        url={String(sp.url ?? "")}
+        title={typeof sp.title === "string" ? sp.title : undefined}
+        kind={sp.kind === "products" ? "products" : "store"}
+        code={typeof sp.code === "string" ? sp.code : undefined}
+        product_count={typeof sp.product_count === "number" ? sp.product_count : undefined}
+        is_active={typeof sp.is_active === "string" ? sp.is_active : undefined}
+      />
+    );
+  }
   if (directive.component === "SignInPrompt") {
       const auth = props as ComponentProps<typeof SignInPrompt> & {
         resume_message?: string;
@@ -412,6 +452,7 @@ const STARTER_PROMPTS = [
   "Find something under ₦50,000",
   "What categories do you have?",
 ];
+
 
 export default function App() {
   const { user, isAuthenticated, loading: authLoading, logout } = useAuth();
@@ -472,6 +513,12 @@ export default function App() {
         typeof restored.checkoutPending.order_id === "string" &&
         typeof restored.checkoutPending.order_number === "string"
       ) {
+        // A confirmed + paid order must never bring the modal back after a
+        // reload — drop the stored state entirely instead of restoring it.
+        if (isCheckoutComplete(restored.checkoutPending, restored.checkoutOrderStatus ?? null)) {
+          window.sessionStorage.removeItem("mp_pending_checkout");
+          return;
+        }
         setCheckoutPending(restored.checkoutPending);
         setCheckoutOrderStatus(restored.checkoutOrderStatus ?? null);
         setCheckoutPanelOpen(true);
@@ -486,7 +533,9 @@ export default function App() {
 
   useEffect(() => {
     if (!checkoutRestored) return;
-    if (checkoutPending) {
+    // Only genuinely in-progress checkouts are persisted; completed ones are
+    // removed so a reload never resurrects the payment modal.
+    if (checkoutPending && !isCheckoutComplete(checkoutPending, checkoutOrderStatus)) {
       window.sessionStorage.setItem(
         "mp_pending_checkout",
         JSON.stringify({ checkoutPending, checkoutOrderStatus }),
@@ -1081,12 +1130,7 @@ export default function App() {
       // A previous order that already completed (paid/accepted/delivered/…)
       // must not resurface its modal when a NEW order starts — reset the whole
       // session first. Only genuinely in-progress checkouts are resumed.
-      const previousDone =
-        checkoutPending.payment?.status === "success" ||
-        ["accepted", "fulfilled", "delivered", "cancelled", "refunded"].includes(
-          checkoutOrderStatus ?? "",
-        );
-      if (previousDone) {
+      if (isCheckoutComplete(checkoutPending, checkoutOrderStatus)) {
         resetCheckoutSession();
       } else {
         setCheckoutPanelOpen(true);
@@ -1281,6 +1325,11 @@ export default function App() {
       resetCheckoutSession();
     } else if (action === "track_order") {
       // directive already rendered in chat
+    } else if (action === "view_order") {
+      // Route through the agent so get_order_status emits an OrderDetail directive.
+      const o = data as Partial<Order> | undefined;
+      const ref = o?.order_number ?? o?.id;
+      if (ref) sendToAgent(`Show me the details of order ${ref}`);
     } else if (action === "confirm") {
       // Confirmation token flow: the ConfirmationDialog passes a token here.
       // For direct checkout, the dialog's onConfirm already called handleDirectCheckout.
@@ -1484,7 +1533,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                onClick={() => setCheckoutPanelOpen(false)}
+                onClick={() => resetCheckoutSession()}
                 aria-label="Close checkout"
                 className="rounded-lg p-1 text-[var(--color-muted)] hover:bg-slate-100"
               >
@@ -1629,7 +1678,7 @@ export default function App() {
               )}
               <button
                 type="button"
-                onClick={() => setCheckoutPanelOpen(false)}
+                onClick={() => resetCheckoutSession()}
                 className="rounded-xl border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium text-[var(--color-foreground)] hover:bg-slate-50"
               >
                 {checkoutPending.payment ? "Close" : "Cancel"}

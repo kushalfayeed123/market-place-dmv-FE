@@ -13,7 +13,7 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary"]);
+const COLLAPSIBLE = new Set(["ProductGrid", "ProductDetail", "CartSummary", "OrderList", "OrderDetail"]);
 
 /** `inert` blocks mouse, keyboard and assistive-tech interaction (React 18 has no typed prop for it). */
 const inertProps = (on: boolean) => (on ? ({ inert: "" } as Record<string, string>) : {});
@@ -33,6 +33,15 @@ function summarize(d: UiDirective): string {
     const payment = p.payment as { status?: string } | undefined;
     const status = String(p.status ?? payment?.status ?? "unknown");
     return `Payment ${status === "success" || status === "paid" ? "complete" : `• ${status}`}`;
+  }
+  if (d.component === "OrderList") {
+    const orders = Array.isArray(p.orders) ? p.orders : [];
+    return `Order list · ${orders.length} order${orders.length === 1 ? "" : "s"}`;
+  }
+  if (d.component === "OrderDetail") {
+    const num = typeof p.order_number === "string" ? p.order_number : "";
+    const st = typeof p.status === "string" ? p.status : "";
+    return `Order ${num}${st ? ` · ${st}` : ""}`;
   }
   return `Viewed ${typeof p.name === "string" ? p.name : "a product"}`;
 }

@@ -1,5 +1,3 @@
-"use client";
-
 import { LandingPage } from "@/components/landing/LandingPage";
 
 /**

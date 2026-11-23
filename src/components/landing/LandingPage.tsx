@@ -1,3 +1,5 @@
+"use client";
+
 import { useState } from "react";
 import {
   Store, Sparkles, ShoppingBag, Truck, Shield, Zap, ChevronRight,

@@ -231,6 +231,53 @@ export interface StoreResponse {
   updated_at: string;
 }
 
+export interface ShareLinkResponse {
+  id: string;
+  code: string;
+  merchant_id: string;
+  store_id: string;
+  title: string | null;
+  product_ids: string[];
+  is_active: string;
+  url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShareLinkProduct {
+  id: string;
+  merchant_id: string;
+  store_id: string;
+  store_name?: string | null;
+  title: string;
+  slug: string;
+  description?: string | null;
+  fulfillment_type: string;
+  product_types: string[];
+  status: string;
+  base_price_amount: number;
+  base_price_currency: string;
+  urls: string[];
+  variants: Array<Record<string, unknown>>;
+}
+
+export interface ShareLinkStoreInfo {
+  id: string;
+  merchant_id: string;
+  name: string;
+  slug: string;
+  branding: Record<string, unknown>;
+}
+
+export interface ShareLinkResolveResponse {
+  code: string;
+  kind: "store" | "products";
+  title: string | null;
+  url: string;
+  store: ShareLinkStoreInfo;
+  products: ShareLinkProduct[];
+}
+
 export interface CategoryResponse {
   id: string;
   name: string;
@@ -516,6 +563,20 @@ export const apiClient = {
   },
   getMyStores(merchantId: string) {
     return raw<StoreResponse[]>("GET", `/stores/merchant/${merchantId}`);
+  },
+  // ── Share links ──
+  listShareLinks() {
+    return raw<ShareLinkResponse[]>("GET", "/links/");
+  },
+  createShareLink(payload: { store_id: string; product_ids?: string[]; title?: string }) {
+    return raw<ShareLinkResponse>("POST", "/links/", { body: payload, idempotent: true });
+  },
+  deactivateShareLink(linkId: string) {
+    return raw<ShareLinkResponse>("POST", `/links/${linkId}/deactivate`, { idempotent: true });
+  },
+  /// Public, no-auth: resolve a share-link code to the store + embedded products.
+  resolveShareLink(code: string) {
+    return raw<ShareLinkResolveResponse>("GET", `/links/public/${encodeURIComponent(code)}`);
   },
   createProduct(payload: ProductCreate) {
     return raw<Product>("POST", "/catalog/products", {

@@ -23,6 +23,7 @@ export type ComponentName =
   | "LedgerTable"
   | "MerchantProfile"
   | "FulfillmentTracker"
+  | "ShareLink"
   | "SignInPrompt"
   | "ErrorMessage";
 

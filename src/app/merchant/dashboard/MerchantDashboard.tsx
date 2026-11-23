@@ -14,6 +14,7 @@ import { MerchantShell } from "@/components/merchant/MerchantShell";
 import { ResourceSection } from "@/components/merchant/ResourceSection";
 import { SECTIONS } from "@/components/merchant/sections";
 import { mreq } from "@/lib/api/merchant";
+import { ShareLinksSection } from "./ShareLinksSection";
 import { RefreshCw, Store } from "lucide-react";
 
 function toLedgerEntry(e: LedgerEntryResponse): LedgerEntry {
@@ -125,13 +126,14 @@ function MerchantDashboardContent() {
     );
 
   const cfg = SECTIONS.find(s => s.key === section);
-  console.log(cfg)
   return (
         <MerchantShell merchantId={merchant.id} businessName={merchant.business_name} section={cfg ? section : "overview"} kycStatus={merchant.kyc_status} onLogout={() => logout().catch(() => {})}>
       {error && <div role="alert" className="mb-4 rounded-lg bg-[var(--color-danger-bg)] px-4 py-3 text-sm text-[var(--color-danger-fg)]">{error}</div>}
       {!cfg || cfg.key === "overview"
         ? <Overview merchant={merchant} balance={balance} entries={entries} attention={attention} reload={loadData} />
-        : <ResourceSection key={cfg.key} cfg={cfg} merchantId={merchant.id} />}
+        : cfg.key === "share"
+          ? <ShareLinksSection merchantId={merchant.id} />
+          : <ResourceSection key={cfg.key} cfg={cfg} merchantId={merchant.id} />}
     </MerchantShell>
   );
 }
