@@ -5,21 +5,33 @@ import { Check, Copy, Link2, Store, Package } from "lucide-react";
 import type { ShareLinkDirectiveProps } from "./directives";
 
 /**
+ * Build the shareable URL on the client from the current origin, so the link
+ * always matches the port the app is actually served on (dev runs on 8443,
+ * prod on 443, etc.) instead of whatever the backend guessed.
+ */
+function shareUrl(code: string | undefined, fallbackUrl: string): string {
+  if (typeof window === "undefined") return fallbackUrl;
+  if (!code) return fallbackUrl;
+  return `${window.location.origin}/s/${code}`;
+}
+
+/**
  * Renders a merchant-generated share link (store or product-set) with a
  * copy-to-clipboard button. Reuses the existing card chrome so it blends with
  * the other agent directives.
  */
-export function ShareLinkCard({ url, title, kind, product_count }: ShareLinkDirectiveProps) {
+export function ShareLinkCard({ url, title, kind, code, product_count }: ShareLinkDirectiveProps) {
   const [copied, setCopied] = useState(false);
+  const link = shareUrl(code, url);
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(link);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard may be unavailable (permissions) — fall back to selecting the text.
-      const el = document.getElementById(`share-link-input-${url.length}`);
+      const el = document.getElementById(`share-link-input-${link.length}`);
       if (el instanceof HTMLInputElement) {
         el.focus();
         el.select();
@@ -50,9 +62,9 @@ export function ShareLinkCard({ url, title, kind, product_count }: ShareLinkDire
       <div className="mt-4 flex items-center gap-2">
         <Link2 size={14} className="shrink-0 text-[var(--color-muted)]" />
         <input
-          id={`share-link-input-${url.length}`}
+          id={`share-link-input-${link.length}`}
           readOnly
-          value={url}
+          value={link}
           onFocus={(e) => e.currentTarget.select()}
           aria-label="Share link URL"
           className="h-9 min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-slate-50 px-3 text-xs text-[var(--color-foreground)] outline-none"

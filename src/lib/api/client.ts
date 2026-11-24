@@ -231,6 +231,16 @@ export interface StoreResponse {
   updated_at: string;
 }
 
+export interface MerchantProductListItem {
+  id: string;
+  title: string;
+  sku: string;
+  stock: number;
+  price: number; // minor units
+  currency: string;
+  status: string;
+}
+
 export interface ShareLinkResponse {
   id: string;
   code: string;

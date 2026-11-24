@@ -415,6 +415,7 @@ function RenderDirective({
       />
     );
   }
+
   if (directive.component === "SignInPrompt") {
       const auth = props as ComponentProps<typeof SignInPrompt> & {
         resume_message?: string;
@@ -945,7 +946,9 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (authLoading || !isAuthenticated) return;
+      // Runs for anonymous visitors too — shared links (/s/{code}) land here
+      // signed-out, and the agent must resolve them via resolve_share_link.
+      if (authLoading) return;
     const resumeMessage = window.sessionStorage.getItem("mp_agent_resume_message");
     if (!resumeMessage) return;
     window.sessionStorage.removeItem("mp_agent_resume_message");
