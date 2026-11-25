@@ -511,16 +511,23 @@ export interface PayoutAccountStatus {
 }
 
 export interface PayoutAccountCreate {
-  provider: string;
+  /** Bank details only — the platform picks the payout provider per currency. */
   currency: string;
-  external_ref: string;
-  account_last4?: string | null;
+  country: string;
+  bank_code: string;
   bank_name?: string | null;
-  account_holder_name?: string | null;
-  bank_code?: string | null;
+  account_number: string;
+  // The account holder name is resolved by the provider from the account
+  // number — the client does not send it.
   routing_number?: string | null;
   account_type?: string | null;
-  country?: string | null;
+}
+
+export interface BankInfo {
+  code: string;
+  name: string;
+  country: string;
+  currency: string;
 }
 
 export const apiClient = {
@@ -782,5 +789,21 @@ export const apiClient = {
       body: payload,
       idempotent: true,
     });
+  },
+
+  /// GET /payments/banks?country=NG&currency=NGN — banks the provider can settle to.
+  listBanks(country = "NG", currency = "NGN") {
+    const q = new URLSearchParams({ country, currency });
+    return raw<BankInfo[]>("GET", `/payments/banks?${q.toString()}`);
+  },
+
+  /// GET /payments/resolve-account?account_number=...&bank_code=...&currency=NGN
+  /// Returns the registered account name from the provider — the merchant never types it.
+  resolveBankAccount(accountNumber: string, bankCode: string, currency = "NGN") {
+    const q = new URLSearchParams({ account_number: accountNumber, bank_code: bankCode, currency });
+    return raw<{ account_number: string; account_name: string; bank_code: string }>(
+      "GET",
+      `/payments/resolve-account?${q.toString()}`,
+    );
   },
 };
