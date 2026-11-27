@@ -29,6 +29,7 @@ import { ProductDetail } from "./components/catalog/ProductDetail";
 import { ShareLinkCard } from "./components/catalog/ShareLinkCard";
 import { KBResultList, type KBSearchResult } from "./components/catalog/KBResultCard";
 import { CartSummary } from "./components/cart/CartSummary";
+import { repriceCart } from "./components/cart/cartPricing";
 import { OrderList } from "./components/orders/OrderList";
 import { OrderDetailView } from "./components/orders/OrderDetailView";
 import { DigitalLibrary } from "./components/orders/DigitalLibrary";
@@ -868,7 +869,7 @@ export default function App() {
     });
   }
 
-  function finishTurn() {
+  async function finishTurn() {
     if (!activeRef.current) return;
     activeRef.current = false;
     if (rafRef.current !== null) {
@@ -876,8 +877,8 @@ export default function App() {
       rafRef.current = null;
     }
 
-    const text = cleanAgentText(textBufferRef.current).trim();
-    const error = errorRef.current;
+    let text = cleanAgentText(textBufferRef.current).trim();
+    let error = errorRef.current;
     const cartIntent = cartIntentRef.current;
     const addedId = addedProductRef.current;
     const directives = dedupeDirectives(heldRef.current, text.length > 0, { cartIntent }).map((d) =>
@@ -889,6 +890,25 @@ export default function App() {
     heldRef.current = [];
     errorRef.current = null;
 
+    const freshCartDirectives: UiDirective[] = [];
+    for (const directive of directives) {
+      if (directive.component !== "CartSummary") {
+        freshCartDirectives.push(directive);
+        continue;
+      }
+      try {
+        freshCartDirectives.push(await refreshCartSummary(directive));
+      } catch (refreshError) {
+        error = refreshError instanceof Error
+          ? `Could not refresh current cart prices: ${refreshError.message}`
+          : "Could not refresh current cart prices. Please try again.";
+        if (cartIntent) text = "";
+      }
+    }
+    if (cartIntent && freshCartDirectives.some((directive) => directive.component === "CartSummary")) {
+      text = "";
+    }
+
     // Find the last CartSummary already displayed in the transcript.
     const lastCartMessage = [...chatMessagesRef.current]
       .reverse()
@@ -896,7 +916,7 @@ export default function App() {
     const lastKey = lastCartMessage ? cartKey(lastCartMessage.directive as UiDirective) : null;
 
     // Drop CartSummary directives whose content is identical to the one already shown.
-    const freshDirectives = directives.filter((d) => {
+    const freshDirectives = freshCartDirectives.filter((d) => {
       if (d.component === "CartSummary" && lastKey) {
         const newKey = cartKey(d);
         // A highlight_product_id prop means the shopper just added an item - that
@@ -920,11 +940,12 @@ export default function App() {
     }
     for (const d of restDirectives) {
       batch.push({ directive: d });
-      if (d.component === "CartSummary") {
-        const n = Number((d.props as Record<string, unknown>).item_count);
-        if (Number.isFinite(n)) setCartCount(n);
-        settleCart("added");
-      }
+    }
+    for (const d of freshDirectives) {
+      if (d.component !== "CartSummary") continue;
+      const n = Number((d.props as Record<string, unknown>).item_count);
+      if (Number.isFinite(n)) setCartCount(n);
+      settleCart("added");
     }
     // If every CartSummary was deduped but we still have text, keep the text.
     // If everything was deduped with no text, don't add a blank message.
@@ -975,13 +996,13 @@ export default function App() {
         touch();
         errorRef.current = error;
       },
-      onEnd: () => finishTurn(),
+      onEnd: () => { void finishTurn(); },
     });
     // Never leave the UI locked if a stream stalls.
     const watchdog = window.setInterval(() => {
       if (activeRef.current && Date.now() - lastEventRef.current > 60_000) {
         errorRef.current = errorRef.current ?? "That's taking longer than usual — please try again.";
-        finishTurn();
+        void finishTurn();
       }
     }, 5000);
     return () => {
@@ -1066,7 +1087,10 @@ export default function App() {
     const p = d.props as Record<string, unknown>;
     const items = (p.items as Array<Record<string, unknown>> | undefined) ?? [];
     const lines = items
-      .map((i) => `${i.variant_id ?? ""}:${i.quantity ?? 0}`)
+      .map((i) => {
+        const price = i.unit_price as Record<string, unknown> | undefined;
+        return `${i.variant_id ?? ""}:${i.quantity ?? 0}:${price?.amount ?? ""}:${price?.currency ?? ""}`;
+      })
       .sort()
       .join(",");
     const subtotal = (p.subtotal as Record<string, unknown> | undefined) ?? {};
@@ -1096,19 +1120,83 @@ export default function App() {
     });
   }
 
-  function handleAddToCart(p: Product, quantity = 1) {
+  async function handleAddToCart(p: Product, quantity = 1) {
     if (busyRef.current) return;
-    // Digital products and services are single-unit: only one copy can be added.
-    const types = p.product_types ?? (p.fulfillment_type ? [p.fulfillment_type] : []);
-    const singleUnit = types.includes("digital") || types.includes("service");
-    const qty = singleUnit ? 1 : Math.max(1, quantity);
     setCartState((prev) => ({ ...prev, [p.id]: "adding" }));
-    // After an add the next step is choosing the quantity, so the turn shows the cart, not product details.
-    sendToAgent(
-      qty > 1 ? `Add ${qty} of ${p.name} to my cart` : `Add ${p.name} to my cart`,
-      undefined,
-      { cart: true, addedProductId: p.id },
-    );
+    setStatusText("Checking the latest product details...");
+    setSearching(true);
+    busyRef.current = true;
+    try {
+      const current = await getCurrentProduct(p.id);
+      if (current.status !== "active") {
+        throw new Error("This product is no longer available.");
+      }
+      if (!Number.isSafeInteger(current.base_price_amount) || current.base_price_amount <= 0) {
+        throw new Error("This product does not have a valid current price.");
+      }
+      if (!current.variants.length) {
+        throw new Error("This product has no purchasable variants.");
+      }
+      const variantPrices = current.variants.map((variant) => {
+        const amount = variant.price_override_amount ?? current.base_price_amount;
+        const currency = variant.price_override_currency ?? current.base_price_currency;
+        if (!Number.isSafeInteger(amount) || amount <= 0 || !currency) {
+          throw new Error("A product variant does not have a valid current price.");
+        }
+        return `variant ${variant.id} (SKU ${variant.sku}): ${amount} ${currency} minor units`;
+      });
+
+      const types = current.product_types ?? [current.fulfillment_type];
+      const singleUnit = types.includes("digital") || types.includes("service");
+      const qty = singleUnit ? 1 : Math.max(1, quantity);
+      const productDetails = [
+        `Add ${qty} of catalog product ID ${current.id} (${current.title}) to my cart.`,
+        `Use this freshly loaded catalog data, not cached product details. Base price: ${current.base_price_amount} ${current.base_price_currency} minor units.`,
+        `Current variants and prices: ${variantPrices.join("; ")}.`,
+      ].join(" ");
+
+      busyRef.current = false;
+      // The next step is choosing the quantity, so the turn shows the cart.
+      sendToAgent(productDetails, undefined, { cart: true, addedProductId: current.id });
+    } catch (error) {
+      busyRef.current = false;
+      setSearching(false);
+      setStatusText(error instanceof Error ? error.message : "Could not refresh this product.");
+      setCartState((prev) => {
+        const next = { ...prev };
+        delete next[p.id];
+        return next;
+      });
+    }
+  }
+
+  async function refreshCartSummary(directive: UiDirective): Promise<UiDirective> {
+    const props = directive.props as unknown as CartSummaryProps;
+    if (!Array.isArray(props.items)) {
+      throw new Error("The agent returned an invalid cart.");
+    }
+    const productIds = [...new Set(props.items.map((item) => item.product_id))];
+    const products = await Promise.all(productIds.map((id) => getCurrentProduct(id)));
+    const pricing = repriceCart(props.items, products, props.currency);
+    return {
+      ...directive,
+      props: { ...directive.props, ...pricing },
+    };
+  }
+
+  async function getCurrentProduct(id: string): Promise<ApiProduct> {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
+    try {
+      return await apiClient.getProduct(id, controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error("The latest product details could not be loaded in time. Please try again.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
   // Quantities are absolute (idempotent): "set to N", and 0 removes the line.

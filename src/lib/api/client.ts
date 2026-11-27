@@ -97,9 +97,11 @@ async function raw<T>(
     idempotent?: boolean;
       idempotencyKey?: string;
     retry?: number;
+    cache?: RequestCache;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T> {
-  const { body, form, formData, idempotent, idempotencyKey, retry = 0 } = opts;
+  const { body, form, formData, idempotent, idempotencyKey, retry = 0, cache, signal } = opts;
   const headers: Record<string, string> = {};
   const token = authStore.getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -121,6 +123,8 @@ async function raw<T>(
     method,
     headers,
     body: payload,
+    cache,
+    signal,
   });
 
   // 401 → try refresh once, then replay the request
@@ -565,8 +569,8 @@ export const apiClient = {
     const query = new URLSearchParams({ limit: String(limit), status: "active" });
     return raw<Product[]>("GET", `/catalog/products?${query.toString()}`);
   },
-  getProduct(id: string) {
-    return raw<Product>("GET", `/catalog/products/${id}`);
+  getProduct(id: string, signal?: AbortSignal) {
+    return raw<Product>("GET", `/catalog/products/${id}`, { cache: "no-store", signal });
   },
   getCategories() {
     return raw<CategoryResponse[]>("GET", "/catalog/categories");

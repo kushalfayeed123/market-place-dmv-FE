@@ -43,7 +43,7 @@ const schema = z.object({
   fulfillment_type: z.enum(["physical", "digital", "service"]).optional(),
   base_price_amount: z
     .number({ invalid_type_error: "Enter a price" })
-    .min(0, "Price can't be negative"),
+    .min(0.01, "Price must be greater than zero"),
   base_price_currency: z.string().length(3),
   category_id: z.string().optional(),
   status: z.enum(["draft", "active", "suspended"]),
@@ -699,7 +699,7 @@ export function ProductForm({ mode, productId }: { mode: "create" | "edit"; prod
                     id="base_price_amount"
                     type="number"
                     inputMode="decimal"
-                    min="0"
+                    min="0.01"
                     step="0.01"
                     placeholder="0.00"
                     aria-invalid={inputErr("base_price_amount")}

@@ -102,7 +102,7 @@ function VariantCard({
   const qtyNum = Number(qty);
   const qtyValid = qty.trim() !== "" && Number.isInteger(qtyNum) && qtyNum >= 0;
   const priceNum = price.trim() === "" ? null : Number(price);
-  const priceValid = priceNum === null || (Number.isFinite(priceNum) && priceNum >= 0);
+  const priceValid = priceNum === null || (Number.isFinite(priceNum) && priceNum >= 0.01);
 
   const patch: VariantPatch = {};
   if (sku.trim() && sku.trim() !== variant.sku) patch.sku = sku.trim();
@@ -183,7 +183,7 @@ function VariantCard({
           error={!priceValid ? "Enter a valid price or leave blank." : undefined}
           hint={priceNum !== null && priceValid ? `Customers pay ${formatMoney(toMinorUnits(priceNum), currency)} for this variant.` : "Leave blank to use the product's base price."}
         >
-          <input id={`price-${variant.id}`} type="number" inputMode="decimal" min={0} step="0.01" value={price} disabled={saving} placeholder="Same as base price" onChange={(e) => setPrice(e.target.value)} className={inputCls} />
+          <input id={`price-${variant.id}`} type="number" inputMode="decimal" min="0.01" step="0.01" value={price} disabled={saving} placeholder="Same as base price" onChange={(e) => setPrice(e.target.value)} className={inputCls} />
         </Field>
       </div>
 
