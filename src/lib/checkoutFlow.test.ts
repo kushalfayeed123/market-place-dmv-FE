@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { isCheckoutComplete, resolveCheckoutFulfillment } from "./checkoutFlow";
+import { isCheckoutComplete, orderIdFromProviderReference, resolveCheckoutFulfillment } from "./checkoutFlow";
+
+describe("orderIdFromProviderReference", () => {
+  it("extracts the order UUID from a provider reference", () => {
+    expect(orderIdFromProviderReference("ord_00000000-0000-0000-0000-000000000000_abcdef123456")).toBe("00000000-0000-0000-0000-000000000000");
+    expect(orderIdFromProviderReference("paystack_ord_00000000-0000-0000-0000-000000000000_abcdef123456")).toBe("00000000-0000-0000-0000-000000000000");
+    expect(orderIdFromProviderReference(null)).toBe(null);
+    expect(orderIdFromProviderReference("")).toBe(null);
+    expect(orderIdFromProviderReference("random")).toBe(null);
+  });
+});
 
 describe("resolveCheckoutFulfillment", () => {
   it("requires delivery for physical products", () => {

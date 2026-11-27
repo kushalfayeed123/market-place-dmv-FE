@@ -146,7 +146,9 @@ export function PaymentCapturePanel({
           onClick={(e) => {
             e.preventDefault();
             // showComplete guarantees a payment object with a payment_url.
-            window.open(payment!.payment_url!, "_blank", "noopener,noreferrer");
+            // Same-tab redirect: sessionStorage (auth + pending checkout) survives,
+            // and the provider callback returns to this app with ?trxref&reference.
+            window.location.href = payment!.payment_url!;
           }}
           className="flex w-full items-center justify-center gap-2 rounded-lg bg-[var(--color-primary)] px-4 py-2.5 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)] transition-colors"
         >

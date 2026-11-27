@@ -1,11 +1,11 @@
 /**
  * Stub payment callback page (dev/test only).
  *
- * When Paystack runs in stub mode, PaymentCapturePanel's "Complete Payment"
- * button opens {FRONTEND_URL}/pay/stub-callback?ref=<provider_reference> in a
- * new tab.  This page calls the backend's `/payments/stub/simulate` endpoint to
- * fire a simulated `charge.success` webhook (updates payment → success, order →
- * paid), then shows a confirmation the buyer can close.
+ * When Paystack runs in stub mode, the "Complete Payment" button redirects the
+ * SAME tab to {FRONTEND_URL}/pay/stub-callback?ref=<provider_reference>.  This
+ * page calls the backend's `/payments/stub/simulate` endpoint to fire a
+ * simulated `charge.success` webhook (updates payment → success, order →
+ * paid), then shows a confirmation with a link back to the store.
  */
 "use client";
 
@@ -76,14 +76,14 @@ export default function StubCallbackPage() {
               Payment Successful!
             </h2>
             <p className="text-sm text-[var(--color-muted)] mb-6">
-              Your order has been confirmed. You can close this tab and return to the
-              chat to see your order confirmation.
+              Your order has been confirmed. Head back to the store to see your
+              order confirmation.
             </p>
             <button
-              onClick={() => window.close()}
+              onClick={() => { window.location.href = "/"; }}
               className="rounded-xl bg-[var(--color-primary)] px-6 py-2.5 text-sm font-medium text-white hover:bg-[var(--color-primary-hover)]"
             >
-              Close tab
+              Back to store
             </button>
           </>
         )}

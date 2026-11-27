@@ -29,7 +29,7 @@ export const SECTIONS: SectionConfig[] = [
   { key: "orders", label: "Orders", icon: ShoppingBag, hint: "Fulfil and track customer orders",
     list: (m, q) => `/merchants/${m}/orders${qs(q)}`,
         statuses: ["pending", "paid", "accepted", "partially_fulfilled", "shipped", "fulfilled", "cancelled", "refunded", "awaiting_approval"],
-    columns: [{ key: "number", label: "Order" }, { key: "customer_name", label: "Customer" }, { key: "created_at", label: "Placed", kind: "date" },
+    columns: [{ key: "number", label: "Order" }, { key: "customer_name", label: "Customer" }, { key: "customer_phone", label: "Phone" }, { key: "created_at", label: "Placed", kind: "date" },
       { key: "total", label: "Total", kind: "money", align: "right" }, { key: "status", label: "Status", kind: "badge" }],
     actions: [
       { label: "View", href: r => `/merchant/orders/${r.id}` },

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   useState,
@@ -63,7 +63,7 @@ import type { LedgerEntry } from "./components/merchant/LedgerTable";
 import type { UiDirective, CanvasMessage } from "./types/components";
 import { apiClient } from "./lib/api/client";
 import type { Product as ApiProduct, PaymentTransactionResponse } from "./lib/api/client";
-import { resolveCheckoutFulfillment, isCheckoutComplete, type CheckoutFulfillment } from "./lib/checkoutFlow";
+import { resolveCheckoutFulfillment, isCheckoutComplete, orderIdFromProviderReference, type CheckoutFulfillment } from "./lib/checkoutFlow";
 import { agentGateway } from "./lib/agent-gateway";
 import { cleanAgentText, dedupeDirectives } from "./lib/agent-turn";
 
@@ -532,6 +532,77 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+      if (authLoading) return;
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("reference") || params.get("trxref");
+      const orderId = orderIdFromProviderReference(ref);
+      if (!orderId) return;
+      let cancelled = false;
+      // The reference encodes the order UUID; fetch the order and payment to
+      // restore the checkout state, then clean the URL.
+      (async () => {
+        try {
+          if (!isAuthenticated) return;
+          const [order, payment] = await Promise.all([
+            apiClient.getOrder(orderId),
+            apiClient.getPaymentByOrder(orderId),
+          ]);
+          if (cancelled) return;
+          // Derive fulfillment from the ordered products.
+          let fulfillment: CheckoutFulfillment = "delivery";
+          if (order.items.length > 0) {
+            const productIds = [...new Set(order.items.map((i) => i.product_id))];
+            const products = await Promise.all(
+              productIds.map((pid) => apiClient.getProduct(pid).catch(() => null)),
+            );
+            const valid = products.filter((p): p is ApiProduct => !!p);
+            if (valid.length > 0) fulfillment = resolveCheckoutFulfillment(valid);
+          }
+          if (
+            isCheckoutComplete(
+              { payment: payment ? { status: payment.status } : null },
+              order.status,
+            )
+          ) {
+            // Already paid/terminal — just clean the URL, don't reopen the modal.
+            window.history.replaceState({}, "", window.location.pathname);
+            return;
+          }
+          setCheckoutPending({
+            order_id: String(order.id),
+            order_number: String(order.order_number),
+            status: String(order.status),
+            total_amount: Number(order.total_amount),
+            currency: String(order.currency),
+            fulfillment,
+            payment,
+          });
+          setCheckoutOrderStatus(String(order.status));
+          setCheckoutPanelOpen(true);
+          // Immediately verify the payment via the backend endpoint so the UI
+          // reflects the correct state right away (rather than waiting for the
+          // 5-second polling interval).
+        try {
+            const verified = await apiClient.verifyPaymentByOrder(orderId);
+          if (cancelled) return;
+            setCheckoutPending((cur) =>
+              cur && cur.order_id === orderId ? { ...cur, payment: verified } : cur,
+            );
+        } catch {
+            // verify failures are non-fatal — the polling loop retries.
+        }
+          // Clean the URL so a subsequent page load does not retrigger this flow.
+          window.history.replaceState({}, "", window.location.pathname);
+        } catch {
+          // Ignore errors (e.g. order not found, not authenticated) and fall
+          // back to the sessionStorage restore flow.
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [authLoading, isAuthenticated]);
   useEffect(() => {
     if (!checkoutRestored) return;
     // Only genuinely in-progress checkouts are persisted; completed ones are
@@ -1102,6 +1173,9 @@ export default function App() {
       const resp = await apiClient.checkout(checkout.items, {
         fulfillment_option: checkout.fulfillment,
         delivery_address: address as Record<string, unknown> | undefined,
+        // The delivery form already collects the buyer's phone — forward it
+        // so the backend can store it on the order for the merchant.
+        buyer_phone: address?.phone || undefined,
         idempotency_key: checkout.idempotencyKey,
       });
       setCheckoutPending({
@@ -1250,7 +1324,9 @@ export default function App() {
   async function handleDirectPayment(provider = "paystack") {
     if (!checkoutPending || paymentPaying) return;
     if (checkoutPending.payment?.payment_url && provider !== "pay_on_delivery") {
-      window.open(checkoutPending.payment.payment_url, "_blank", "noopener,noreferrer");
+      // Same-tab redirect: sessionStorage (auth tokens + pending checkout)
+      // survives, and the provider callback returns here with ?trxref&reference.
+      window.location.href = checkoutPending.payment.payment_url;
       return;
     }
     setPaymentPaying(true);
@@ -1278,10 +1354,11 @@ export default function App() {
       // The order and payment mode are now confirmed — the cart has been
       // converted into an order, so clear it (badge shows 0, session cart too).
       clearCartUi(checkoutPending.currency);
-      // Online providers return a payment_url to open; pay_on_delivery returns
-      // none — the order simply moves to awaiting_approval.
+      // Online providers return a payment_url; redirect in the SAME tab so the
+      // sessionStorage auth state and pending checkout survive the round-trip.
+      // pay_on_delivery returns none — the order simply moves to awaiting_approval.
       if (response.payment_url) {
-        window.open(response.payment_url, "_blank", "noopener,noreferrer");
+        window.location.href = response.payment_url;
       }
       setPaymentError(null);
       setCheckoutStatusError(null);

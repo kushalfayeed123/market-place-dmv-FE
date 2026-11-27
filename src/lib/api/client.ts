@@ -701,11 +701,13 @@ export const apiClient = {
   },
   checkout(items: Array<{ variant_id: string; quantity: number }>, opts?: {
     delivery_address?: Record<string, unknown>;
+    buyer_phone?: string;
     fulfillment_option?: "delivery" | "pickup" | "digital" | "service";
     idempotency_key?: string;
   }) {
     const body: Record<string, unknown> = { items };
     if (opts?.delivery_address) body.delivery_address = opts.delivery_address;
+    if (opts?.buyer_phone) body.buyer_phone = opts.buyer_phone;
     if (opts?.fulfillment_option) body.fulfillment_option = opts.fulfillment_option;
     return raw<Record<string, unknown>>("POST", "/orders/checkout", {
       body,
